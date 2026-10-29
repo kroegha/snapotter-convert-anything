@@ -48,17 +48,29 @@ docker logs snapotter 2>&1 | Select-String GPU
 Start-Process http://localhost:1349
 ```
 
-Sign in as `craig` with `SNAPOTTER_ADMIN_PASSWORD` from `.env` (you are asked
-to change it), then install the AI features under Settings → AI Features.
+Then run the automated verification (from the repo root):
+
+```powershell
+.\scripts\blackwell\Verify-Phase3.ps1 -Mode gpu -Setup -Install   # first run
+.\scripts\blackwell\Verify-Phase3.ps1 -Mode cpu                   # same image, SNAPOTTER_GPU=0
+.\scripts\blackwell\Verify-Phase3.ps1 -Mode gpu                   # back to GPU
+```
+
+`-Setup` signs in as `craig`, rotates the forced first-login password to a new
+random one (written back into `.env` as `SNAPOTTER_ADMIN_PASSWORD`), and saves a
+new API key to `api-key.txt` next to `.env`. `-Install` installs all seven AI
+bundles from the private Hugging Face repo. Each run executes every GPU tool
+twice (cold, warm) on the repo's fixtures, logs `nvidia-smi` every 250 ms, and
+writes `snapotter-build\phase3\report.md` (GPU vs CPU timings, peak GPU
+utilisation and VRAM per tool) plus the tool outputs.
 
 Pass criteria (PRD §3):
 
 1. The container starts with the GPU visible.
-2. `docker exec snapotter /data/ai/venv/bin/python -c "import sys; sys.path.insert(0,'/app/packages/ai/python'); import gpu; print(gpu.gpu_frameworks_available())"`
-   prints `torch`, `onnx` and `ctranslate2` all `True`, and the logs show no
-   "will run on CPU" warning.
-3. Each GPU tool completes on the GPU (watch `nvidia-smi -l 1` while it runs).
-4. Timing table against the published image's CPU fallback.
+2. The AI sidecar reports `torch`, `onnx` and `ctranslate2` all `True`, and the
+   logs show no "will run on CPU" warning (Verify-Phase3.ps1 prints both).
+3. Each GPU tool completes, with GPU utilisation during its window.
+4. `report.md` timing table: GPU against the CPU path on the same image.
 5. Non-AI smoke test: image convert, video compress, PDF merge, OCR.
 
 ## Upstream drift

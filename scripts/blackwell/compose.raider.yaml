@@ -37,6 +37,8 @@ services:
       SKIP_MUST_CHANGE_PASSWORD: "false"
       SNAPOTTER_TELEMETRY: "0"
       HF_TOKEN_PATH: /run/secrets/hf_token
+      # Verify-Phase3.ps1 -Mode cpu sets 0 to time the CPU path on the same image.
+      SNAPOTTER_GPU: ${SNAPOTTER_GPU:-auto}
       SNAPOTTER_ALLOW_MODEL_DOWNLOAD: "0"
       TRUST_PROXY: loopback
       SESSION_DURATION_HOURS: "24"
