@@ -121,10 +121,37 @@ def main():
     summarize(results, a.out, a.codec)
 
 
+CAMERA = ("phone.mp4", "long4k.mp4")
+
+
 def summarize(results, out, codec):
+    """Two tables: camera footage (the calibration target: Craig's clips are
+    mostly phone video) and all clips including the screen recording, plus the
+    screen clip's own numbers at the camera-chosen offsets."""
+    cam = [r for r in results if r["clip"] in CAMERA]
+    a_lines, choice = table(cam, f"# NVENC calibration ({codec}) -- camera footage (phone, long 4K)")
+    b_lines, _ = table(results, "## All clips, including the screen recording")
+    sw = {(r["clip"], r["crf"]): r for r in results if r["config"] == "software"}
+    c_lines = ["", "## Screen recording at the camera-chosen offsets", "",
+               "| CRF | Offset | Size NVENC / software | dVMAF |", "|---|---|---|---|"]
+    for crf, (name, off, _) in sorted(choice.items()):
+        r = next((x for x in results if x["clip"] == "screen.mp4" and x["crf"] == crf and x["config"] == name
+                  and x["offset"] == off), None)
+        s = sw.get(("screen.mp4", crf))
+        if r and s:
+            c_lines.append(f"| {crf} | +{off} | {r['bytes'] / s['bytes']:.2f} | {r['vmaf'] - s['vmaf']:+.2f} |")
+    lines = a_lines + [""] + b_lines + c_lines
+    with open(os.path.join(out, f"calibration-{codec}.md"), "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+    with open(os.path.join(out, f"calibration-{codec}-choice.json"), "w") as fh:
+        json.dump({str(k): {"config": v[0], "offset": v[1]} for k, v in sorted(choice.items())}, fh, indent=1)
+    print("\n".join(lines), flush=True)
+
+
+def table(results, title):
     sw = {(r["clip"], r["crf"]): r for r in results if r["config"] == "software"}
     clips = sorted({r["clip"] for r in results})
-    lines = [f"# NVENC calibration ({codec})", "",
+    lines = [title, "",
              "Pass = on every clip, VMAF >= software - 1 and size <= 1.15x software. "
              "Chosen offset = the largest passing offset whose worst clip is within 0.5 VMAF of software.", "",
              "| CRF | Config | Passing offsets | Chosen offset | Worst dVMAF | Worst size ratio | Mean NVENC/software time |",
@@ -157,9 +184,7 @@ def summarize(results, out, codec):
     lines += ["", "Chosen per CRF (smallest size ratio among configs whose pick passes):", ""]
     for crf in CRFS:
         lines.append(f"- CRF {crf}: " + (f"{choice[crf][0]}, offset +{choice[crf][1]}" if crf in choice else "no config passes"))
-    with open(os.path.join(out, f"calibration-{codec}.md"), "w") as fh:
-        fh.write("\n".join(lines) + "\n")
-    print("\n".join(lines), flush=True)
+    return lines, choice
 
 
 if __name__ == "__main__":
