@@ -11,6 +11,8 @@
   unpackaged ones, AVS3 and EVC) or a probe fails.
 #>
 param(
+  # PowerShell names are case-insensitive: keep these distinct from the
+  # inventory variables below.
   [string]$Old = "snapotter-local:cu134",
   [string]$New = "snapotter-local:cu134-nvenc"
 )
@@ -24,9 +26,9 @@ foreach ($pair in @(@("old", $Old), @("new", $New))) {
   cmd /c "docker run --rm --entrypoint sh -v `"${Inv}:/inv.sh:ro`" $($pair[1]) /inv.sh > `"$Out\$($pair[0]).txt`" 2>&1"
   if ($LASTEXITCODE -ne 0) { throw "inventory of $($pair[1]) failed" }
 }
-$old = Get-Content "$Out\old.txt"; $new = Get-Content "$Out\new.txt"
-$lost = $old | Where-Object { $_ -notin $new }
-$gained = $new | Where-Object { $_ -notin $old }
+$oldInv = Get-Content "$Out\old.txt"; $newInv = Get-Content "$Out\new.txt"
+$lost = $oldInv | Where-Object { $_ -notin $newInv }
+$gained = $newInv | Where-Object { $_ -notin $oldInv }
 $known = @("decoders libuavs3d", "decoders libxevd", "decoders evc")
 # Input protocols are reported but not enforced: the app passes
 # -protocol_whitelist file,pipe on every input (security fix S7), so network
