@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { wrapWithMemoryLimit } from "@snapotter/shared";
 import { resolveFfprobe } from "./binaries.js";
 import { markIfInputError } from "./ffmpeg.js";
+import { INPUT_PROTOCOL_WHITELIST } from "./protocols.js";
 
 export interface MediaStreamInfo {
   type: "video" | "audio" | "other";
@@ -75,6 +76,9 @@ export async function probeMedia(filePath: string, opts: ProbeOptions = {}): Pro
     "json",
     "-show_format",
     "-show_streams",
+    // Local files only; see protocols.ts.
+    "-protocol_whitelist",
+    INPUT_PROTOCOL_WHITELIST,
     filePath,
   ];
   const timeoutMs = opts.timeoutMs ?? 15_000;

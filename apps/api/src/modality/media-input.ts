@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { FfprobeTimeoutError, probeMedia } from "@snapotter/media-engine";
+import { FfprobeTimeoutError, probeMedia, REFERENCE_CONTAINER_RE } from "@snapotter/media-engine";
 import { SUBTITLE_INPUTS } from "@snapotter/shared";
 import { env } from "../config.js";
 import { isBinarySpawnFailure } from "../lib/binary-overrides.js";
@@ -95,6 +95,13 @@ export class MediaInputHandler implements InputHandler {
         );
       }
       opts.signal?.throwIfAborted();
+      // A playlist or concat list only points at other media; the upload must
+      // be the media itself (fork security fix S7, see media-engine protocols.ts).
+      if (REFERENCE_CONTAINER_RE.test(info.container)) {
+        throw new InputValidationError(
+          `Unrecognized ${this.kind} file. Playlists and media lists are not supported; upload the media file itself.`,
+        );
+      }
       const hasVideo = info.streams.some((s) => s.type === "video");
       const hasAudio = info.streams.some((s) => s.type === "audio");
 

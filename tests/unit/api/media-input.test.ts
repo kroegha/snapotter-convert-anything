@@ -372,3 +372,28 @@ describe("ffprobe spawn failures (#3716)", () => {
     expect(readdirSync(scratchDir)).toEqual([]);
   });
 });
+
+describe("reference containers (fork security fix S7)", () => {
+  it.each([
+    "hls,applehttp",
+    "hls",
+    "concat",
+    "dash",
+  ])("refuses a %s playlist instead of treating it as media", async (container) => {
+    mediaEngine.probeMedia.mockResolvedValueOnce({
+      container,
+      durationS: 10,
+      bitrateKbps: 128,
+      streams: [{ type: "video", codec: "h264", width: 320, height: 240 }],
+    });
+    await expect(
+      new MediaInputHandler("video").prepare(Buffer.from("#EXTM3U\n"), "clip.m3u8", { scratchDir }),
+    ).rejects.toThrow(/Playlists and media lists are not supported/);
+  });
+
+  it("still accepts ordinary containers", async () => {
+    await expect(
+      new MediaInputHandler("video").prepare(Buffer.from("fake-media"), "clip.mp4", { scratchDir }),
+    ).resolves.toMatchObject({ filename: "clip.mp4" });
+  });
+});

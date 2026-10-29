@@ -1039,7 +1039,7 @@ async function decodeExr(buffer: Buffer, options: DecodeSafetyOptions): Promise<
     try {
       await execFileAsync(
         resolveFfmpeg() ?? "ffmpeg",
-        ["-y", "-i", inputPath, "-pix_fmt", "rgba", "-update", "1", outputPath],
+        ["-y", "-protocol_whitelist", "file,pipe", "-i", inputPath, "-pix_fmt", "rgba", "-update", "1", outputPath],
         commandOptions(options, 120_000),
       );
     } catch (error) {
