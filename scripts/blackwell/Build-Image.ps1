@@ -20,15 +20,12 @@ $Log = Join-Path $Logs ("image-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
 
 Write-Host "Building $Image from $Repo (log: $Log)"
 $env:DOCKER_BUILDKIT = "1"
-& docker build `
-  --platform linux/amd64 `
-  --file (Join-Path $Repo "docker\Dockerfile") `
-  --build-arg SNAPOTTER_ANALYTICS=off `
-  --build-arg CT2_JOBS=$Ct2Jobs `
-  --progress plain `
-  --tag $Image `
-  $Repo *>&1 | Tee-Object -FilePath $Log
-if ($LASTEXITCODE -ne 0) { throw "docker build failed ($LASTEXITCODE); see $Log" }
+# Redirect in cmd, not through the PowerShell pipeline: Windows PowerShell
+# holds a native command's piped output until it exits, so the log would stay
+# empty for the whole build. Follow it with: Get-Content <log> -Wait -Tail 20
+$Dockerfile = Join-Path $Repo "docker\Dockerfile"
+cmd /c "docker build --platform linux/amd64 --file `"$Dockerfile`" --build-arg SNAPOTTER_ANALYTICS=off --build-arg CT2_JOBS=$Ct2Jobs --progress plain --tag $Image `"$Repo`" > `"$Log`" 2>&1"
+if ($LASTEXITCODE -ne 0) { Get-Content $Log -Tail 30; throw "docker build failed ($LASTEXITCODE); see $Log" }
 
 Write-Host "== Verifying the image"
 & docker run --rm --entrypoint bash $Image -c @'

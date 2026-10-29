@@ -31,10 +31,8 @@ foreach ($id in $Bundles) {
   $log = Join-Path $Logs "bundle-$id.log"
   $started = Get-Date
   Write-Host ("> {0} started {1:HH:mm}" -f $id, $started)
-  & docker run --rm --name "snapotter-bundle-$id" --entrypoint bash `
-    -v "${BuildScript}:/build-bundle.sh:ro" `
-    -v "${Out}:/output" `
-    $Image /build-bundle.sh $id amd64-gpu /output *>&1 | Out-File -FilePath $log -Encoding utf8
+  # cmd redirection so the log fills live (see Build-Image.ps1).
+  cmd /c "docker run --rm --name snapotter-bundle-$id --entrypoint bash -v `"${BuildScript}:/build-bundle.sh:ro`" -v `"${Out}:/output`" $Image /build-bundle.sh $id amd64-gpu /output > `"$log`" 2>&1"
   $mins = [math]::Round(((Get-Date) - $started).TotalMinutes, 1)
   if ($LASTEXITCODE -eq 0 -and (Test-Path $archive)) {
     $gb = [math]::Round((Get-Item $archive).Length / 1GB, 2)
