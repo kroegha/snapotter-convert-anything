@@ -268,6 +268,130 @@ def run_smoke(c, out):
     print(f"SMOKE DONE: {len(results) - len(bad)}/{len(results)} OK", flush=True)
 
 
+CLIPS = "/clips"
+
+
+def video_matrix():
+    """(label, endpoint, files factory, settings, vmaf-reference clip or None).
+
+    Every tool that encodes H.264 through videoCodecArgs, on the phase 2 test
+    clips (PRD section 9). Tools whose output frames match the input (compress
+    and convert at original resolution) carry the clip as the VMAF reference.
+    """
+    phone, long4k, screen = (f"{CLIPS}/{n}" for n in ("phone.mp4", "long4k.mp4", "screen.mp4"))
+    srt = f"{FIX}/video/formats/tiny.srt"
+    f = lambda p: {"file": (os.path.basename(p), open(p, "rb"))}  # noqa: E731
+    imgs = [f"{FIX}/image/valid/{n}" for n in ("sample-photo.jpg", "portrait-color.jpg", "test-portrait.jpg")]
+    return [
+        ("compress light / phone", "video/compress-video", lambda: f(phone), {"quality": "light"}, phone),
+        ("compress balanced / phone", "video/compress-video", lambda: f(phone), {"quality": "balanced"}, phone),
+        ("compress strong / phone", "video/compress-video", lambda: f(phone), {"quality": "strong"}, phone),
+        ("convert mp4 high / phone", "video/convert-video", lambda: f(phone), {"format": "mp4", "quality": "high"}, phone),
+        ("convert mp4 balanced / phone", "video/convert-video", lambda: f(phone), {"format": "mp4", "quality": "balanced"}, phone),
+        ("convert mp4 small / phone", "video/convert-video", lambda: f(phone), {"format": "mp4", "quality": "small"}, phone),
+        ("convert mov / phone", "video/convert-video", lambda: f(phone), {"format": "mov"}, phone),
+        ("convert mkv / phone", "video/convert-video", lambda: f(phone), {"format": "mkv"}, phone),
+        ("trim 5-35 s / phone", "video/trim-video", lambda: f(phone), {"startS": 5, "endS": 35}, None),
+        ("resize 720p / phone", "video/resize-video", lambda: f(phone), {"preset": "720p"}, None),
+        ("burn subtitles / phone", "video/burn-subtitles",
+         lambda: [("file", ("phone.mp4", open(phone, "rb"))), ("file", ("tiny.srt", open(srt, "rb")))], {}, None),
+        ("merge phone + hero", "video/merge-videos",
+         lambda: [("file", ("phone.mp4", open(phone, "rb"))), ("file", ("hero.mov", open(f"{FIX}/video/valid/hero.mov", "rb")))], None, None),
+        ("gif to video", "video/gif-to-video", lambda: f(f"{FIX}/image/valid/animated.gif"), {"format": "mp4"}, None),
+        ("images to video 1080p", "video/images-to-video",
+         lambda: [("file", (os.path.basename(p), open(p, "rb"))) for p in imgs], {"resolution": "1080p"}, None),
+        ("compress balanced / long 4K (10 min)", "video/compress-video", lambda: f(long4k), {"quality": "balanced"}, long4k),
+        ("resize 1080p / long 4K (10 min)", "video/resize-video", lambda: f(long4k), {"preset": "1080p"}, None),
+        ("convert mp4 balanced / screen (10 min)", "video/convert-video", lambda: f(screen), {"format": "mp4"}, screen),
+    ]
+
+
+def score_vmaf(vmaf_bin, dist, ref):
+    """Pooled VMAF of dist against ref; long inputs are subsampled harder."""
+    import re
+    import subprocess
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", ref],
+                           capture_output=True, text=True)
+    dur = float(probe.stdout.strip() or 0)
+    sub = 10 if dur > 120 else 2
+    r = subprocess.run([vmaf_bin, "-hide_banner", "-i", dist, "-i", ref, "-lavfi",
+                        "[0:v]format=yuv420p,setpts=PTS-STARTPTS[d];[1:v]format=yuv420p,setpts=PTS-STARTPTS[r];"
+                        f"[d][r]libvmaf=n_threads=16:n_subsample={sub}", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    m = re.search(r"VMAF score: ([0-9.]+)", r.stderr)
+    return float(m.group(1)) if m else None
+
+
+def run_one(c, out, label, endpoint, files, settings, tag):
+    data = {} if settings is None else {"settings": json.dumps(settings)}
+    start = time.time()
+    rec = {"tool": label, "run": tag, "start": start}
+    try:
+        r = c.s.post(c.url(f"/api/v1/tools/{endpoint}"), files=files(), data=data, timeout=7200)
+        if r.status_code >= 400:
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+        body = r.json()
+        if r.status_code == 202 or body.get("async"):
+            ev = c.wait_job(body["jobId"], timeout=7200)
+            body = {**body, **(ev.get("result") or {})}
+        rec["seconds"] = round(time.time() - start, 2)
+        dl = body.get("downloadUrl")
+        if dl:
+            name = f"{label.replace(' ', '_').replace('/', '-')}-{tag}{os.path.splitext(dl)[1]}"
+            with c.s.get(c.url(dl), timeout=1800, stream=True) as resp:
+                resp.raise_for_status()
+                with open(os.path.join(out, name), "wb") as fh:
+                    for chunk in resp.iter_content(1 << 20):
+                        fh.write(chunk)
+            rec["output"] = name
+            rec["bytes"] = os.path.getsize(os.path.join(out, name))
+        rec["ok"] = True
+    except Exception as e:  # keep going; report every tool
+        rec["seconds"] = round(time.time() - start, 2)
+        rec["ok"] = False
+        rec["error"] = str(e)[:400]
+    rec["end"] = time.time()
+    return rec
+
+
+def run_video(c, out, tag, vmaf_bin):
+    """PRD phase 2 criteria 2-4: every H.264 tool on the test clips, plus one
+    AI job running alongside a long video job."""
+    import threading
+    os.makedirs(out, exist_ok=True)
+    results = []
+    for label, endpoint, files, settings, ref in video_matrix():
+        rec = run_one(c, out, label, endpoint, files, settings, tag)
+        if rec["ok"] and ref and vmaf_bin and rec.get("output"):
+            rec["vmaf"] = score_vmaf(vmaf_bin, os.path.join(out, rec["output"]), ref)
+        results.append(rec)
+        print(f"[{'OK ' if rec['ok'] else 'ERR'}] {label:40s} {tag:8s} {rec['seconds']:8.2f}s "
+              f"{rec.get('bytes', 0) / 1e6:9.1f} MB VMAF {rec.get('vmaf', '-')} {rec.get('error', '')}", flush=True)
+        with open(os.path.join(out, "results-video.json"), "w") as fh:
+            json.dump(results, fh, indent=1)
+
+    # One AI job while a long encode runs: both must finish.
+    portrait = f"{FIX}/image/valid/portrait-color.jpg"
+    box = {}
+    long_job = threading.Thread(target=lambda: box.setdefault("video", run_one(
+        c, out, "parallel: compress long 4K", "video/compress-video",
+        lambda: {"file": ("long4k.mp4", open(f"{CLIPS}/long4k.mp4", "rb"))}, {"quality": "strong"}, tag)))
+    long_job.start()
+    time.sleep(30)
+    box["ai"] = run_one(c, out, "parallel: upscale x4", "image/upscale",
+                        lambda: {"file": ("portrait.jpg", open(portrait, "rb"))}, {"scale": 4, "model": "auto"}, tag)
+    long_job.join()
+    for rec in (box["video"], box["ai"]):
+        results.append(rec)
+        print(f"[{'OK ' if rec['ok'] else 'ERR'}] {rec['tool']:40s} {tag:8s} {rec['seconds']:8.2f}s {rec.get('error', '')}",
+              flush=True)
+    with open(os.path.join(out, "results-video.json"), "w") as fh:
+        json.dump(results, fh, indent=1)
+    bad = [r for r in results if not r["ok"]]
+    print(f"VIDEO DONE ({tag}): {len(results) - len(bad)}/{len(results)} OK", flush=True)
+    return results
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://snapotter:1349")
@@ -276,6 +400,8 @@ def main():
     ap.add_argument("--setup", action="store_true")
     ap.add_argument("--install", action="store_true")
     ap.add_argument("--smoke", action="store_true", help="run the non-AI smoke test instead of the AI matrix")
+    ap.add_argument("--video", metavar="TAG", help="run the phase 2 video matrix, labelled TAG (nvenc|software)")
+    ap.add_argument("--vmaf", help="ffmpeg binary with libvmaf, for --video quality scores")
     a = ap.parse_args()
     if a.setup:
         setup(a.base, a.env)
@@ -287,6 +413,9 @@ def main():
     if a.smoke:
         run_smoke(c, a.out)
         return
+    if a.video:
+        res = run_video(c, a.out, a.video, a.vmaf)
+        sys.exit(1 if any(not r["ok"] for r in res) else 0)
     res = run_matrix(c, a.out)
     bad = [r for r in res if not r["ok"]]
     print(f"MATRIX DONE: {len(res) - len(bad)}/{len(res)} runs OK", flush=True)

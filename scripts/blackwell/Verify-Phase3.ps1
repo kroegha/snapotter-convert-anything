@@ -27,6 +27,7 @@ $Log = Join-Path $Out "verify.log"
 Push-Location $StackDir
 try {
   $env:SNAPOTTER_GPU = if ($Mode -eq "cpu") { "0" } else { "auto" }
+  $env:SNAPOTTER_IMAGE = $Image
   cmd /c "docker compose up -d > `"$Out\compose.log`" 2>&1"
   if ($LASTEXITCODE -ne 0) { Get-Content "$Out\compose.log"; throw "docker compose up failed" }
 } finally { Pop-Location }
