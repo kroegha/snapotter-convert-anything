@@ -274,6 +274,15 @@ export interface DecodeSafetyOptions {
   maxDimension?: number;
   /** Cancels external decoder processes when the owning job is canceled. */
   signal?: AbortSignal;
+  /**
+   * The upload's type was accepted on its filename alone (validation
+   * `nameOnly`), so its bytes are unproven. Never hand such a file to a
+   * decoder that picks the format by sniffing content (ImageMagick without an
+   * explicit coder): text, SVG or PostScript renamed to .tga or a RAW
+   * extension would otherwise reach the TXT/rsvg/Ghostscript delegates and
+   * bypass the magic-byte allowlist and the SVG sanitiser.
+   */
+  contentUnverified?: boolean;
 }
 
 function commandOptions(options: DecodeSafetyOptions, timeout: number) {
@@ -904,7 +913,16 @@ async function decodeRaw(
     }
 
     // Attempt 4: ImageMagick (last resort -- its RAW delegate may be the
-    // deprecated ufraw-batch, which fails on modern formats).
+    // deprecated ufraw-batch, which fails on modern formats). ImageMagick picks
+    // the coder from the content, so a file accepted on its extension alone
+    // stops here instead (see DecodeSafetyOptions.contentUnverified).
+    if (options.contentUnverified) {
+      throw chainFailure(
+        [dcrawFailure, new Error("RAW decoders could not read this file and its type is unverified")].filter(
+          (err) => err !== undefined,
+        ),
+      );
+    }
     try {
       const cmd = await findMagickCmd(options);
       await execFileAsync(
@@ -971,7 +989,9 @@ async function decodeTga(buffer: Buffer, options: DecodeSafetyOptions): Promise<
     await writeTempExclusive(inputPath, buffer);
     await execFileAsync(
       cmd,
-      magickArgs(cmd, [inputPath, `png:${outputPath}`], options),
+      // Explicit coder: TGA has no magic number, so ImageMagick would otherwise
+      // pick a coder by sniffing the bytes (TXT, SVG, PS...).
+      magickArgs(cmd, [`tga:${inputPath}`, `png:${outputPath}`], options),
       commandOptions(options, 120_000),
     );
     return await readFile(outputPath);
