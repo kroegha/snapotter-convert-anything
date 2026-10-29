@@ -276,6 +276,45 @@ class CliTest(unittest.TestCase):
         self.assertIn("snapotter wait job-slow", err)
         self.assertLess(time.time() - start, 5)
 
+    def test_png_transparency_with_every_filter(self):
+        import struct
+        import zlib
+
+        def png(rows, width):
+            def chunk(kind, body):
+                return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+            raw = b"".join(bytes([f]) + line for f, line in rows)
+            return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, len(rows), 8, 6, 0, 0, 0))
+                    + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+        # 2x5: left pixel opaque, right pixel clear, each row written with a different
+        # filter type (0-4); with prev = the decoded row above, Sub/Up/Avg/Paeth deltas
+        # here were chosen so every row decodes to the same pixels.
+        opaque_clear = bytes([10, 20, 30, 255, 0, 0, 0, 0])
+        sub = bytes([10, 20, 30, 255, (0 - 10) & 255, (0 - 20) & 255, (0 - 30) & 255, 1])  # 255+1 -> 0
+        up = bytes(8)
+        avg = bytes([10 - 5, 20 - 10, 30 - 15, 255 - 127, (0 - 5) & 255, (0 - 10) & 255, (0 - 15) & 255, (0 - 127) & 255])
+        paeth = bytes(8)
+        path = self.file("cut.png", png([(0, opaque_clear), (1, sub), (2, up), (3, avg), (4, paeth)], 2))
+        self.assertEqual(snapotter.png_transparent_pct(path), 50.0)
+        self.assertIsNone(snapotter.png_transparent_pct(self.file("x.png", b"not a png")))
+
+    def test_empty_cutout_is_flagged(self):
+        rec = {"tool": "remove-background", "inputs": [self.file("in.jpg", b"x" * 100)], "bytes": 50}
+        import struct
+        import zlib
+        def chunk(kind, body):
+            return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+        data = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 1, 8, 6, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(b"\x00" + bytes(16))) + chunk(b"IEND", b""))
+        rec["output"] = self.file("in_mask.png", data)
+        warnings = []
+        snapotter.check_output(rec, warnings.append)
+        self.assertEqual(rec["transparentPct"], 100.0)
+        self.assertIn("close to empty", rec["warning"])
+        self.assertEqual(rec["sizeRatio"], 0.5)
+        self.assertEqual(len(warnings), 1)
+
     # ── safety ───────────────────────────────────────────────────────────────
 
     def test_refuses_non_local_server_unless_explicit(self):

@@ -375,6 +375,86 @@ def download(client, url, dest):
         conn.close()
 
 
+def png_transparent_pct(path, limit=200 << 20):
+    """Percent of fully transparent pixels in an 8-bit RGBA, non-interlaced PNG,
+    or None for anything else. Standard library only (zlib + PNG filters)."""
+    import struct
+    import zlib
+    try:
+        if os.path.getsize(path) > limit:
+            return None
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    pos, idat, width = 8, [], None
+    while pos + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        chunk = data[pos + 8:pos + 8 + length]
+        pos += 12 + length
+        if kind == b"IHDR":
+            width, height, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", chunk)
+            if depth != 8 or ctype != 6 or interlace:
+                return None
+        elif kind == b"IDAT":
+            idat.append(chunk)
+        elif kind == b"IEND":
+            break
+    if not width or not idat:
+        return None
+    try:
+        raw = zlib.decompress(b"".join(idat))
+    except zlib.error:
+        return None
+    bpp, stride = 4, width * 4
+    prev = bytearray(stride)
+    clear = 0
+    for y in range(height):
+        start = y * (stride + 1)
+        ftype, line = raw[start], bytearray(raw[start + 1:start + 1 + stride])
+        if ftype == 1:
+            for i in range(bpp, stride):
+                line[i] = (line[i] + line[i - bpp]) & 0xFF
+        elif ftype == 2:
+            for i in range(stride):
+                line[i] = (line[i] + prev[i]) & 0xFF
+        elif ftype == 3:
+            for i in range(stride):
+                left = line[i - bpp] if i >= bpp else 0
+                line[i] = (line[i] + ((left + prev[i]) >> 1)) & 0xFF
+        elif ftype == 4:
+            for i in range(stride):
+                a = line[i - bpp] if i >= bpp else 0
+                b, c = prev[i], prev[i - bpp] if i >= bpp else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pred = a if pa <= pb and pa <= pc else b if pb <= pc else c
+                line[i] = (line[i] + pred) & 0xFF
+        clear += line[3::4].count(0)
+        prev = line
+    return round(100.0 * clear / (width * height), 1)
+
+
+def check_output(record, warn):
+    """Add size and sanity fields to a finished record."""
+    inputs = [f for f in record.get("inputs") or [] if os.path.isfile(f)]
+    if record.get("output") and inputs:
+        total = sum(os.path.getsize(f) for f in inputs)
+        record["inputBytes"] = total
+        if total and record.get("bytes") is not None:
+            record["sizeRatio"] = round(record["bytes"] / total, 3)
+    if record.get("tool") == "remove-background" and record.get("output", "").lower().endswith(".png"):
+        pct = png_transparent_pct(record["output"])
+        if pct is not None:
+            record["transparentPct"] = pct
+            if pct >= 95:
+                record["warning"] = (f"{pct}% of the cut-out is transparent: no clear subject was found, "
+                                     f"so the result is close to empty")
+                warn(f"{os.path.basename(record['output'])}: {record['warning']}")
+
+
 def finish(client, result, out, default_dir, force):
     """Download the job's output; return (path or None, extra payload fields)."""
     extras = {k: v for k, v in result.items()
@@ -571,6 +651,7 @@ def cmd_run(args, catalog, ui, client):
         try:
             resp, data = submit(client, tool, batch_files, settings, fields)
             handle_response(client, ui, resp, data, args, default_dir, record)
+            check_output(record, ui.warn)
             record["seconds"] = round(time.time() - start, 2)
             record["ok"] = True
             ui.result(record)
