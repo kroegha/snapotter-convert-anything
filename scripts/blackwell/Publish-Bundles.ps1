@@ -42,7 +42,7 @@ if (-not (Test-Path (Join-Path $Out "upload-plan.json"))) { throw "No upload-pla
 
 $log = Join-Path $Logs "publish-$stamp.log"
 Write-Host "Uploading (log: $log)"
-cmd /c "docker run --rm --entrypoint python3 -e HF_TOKEN_PATH=/run/secrets/hf_token -v `"${Token}:/run/secrets/hf_token:ro`" -v `"${Repo}:/repo:ro`" -v `"${Out}:/bundles:ro`" $Image -I /repo/scripts/blackwell/publish_bundles.py /bundles/upload-plan.json > `"$log`" 2>&1"
+cmd /c "docker run --rm --entrypoint /opt/venv/bin/python -e HF_TOKEN_PATH=/run/secrets/hf_token -v `"${Token}:/run/secrets/hf_token:ro`" -v `"${Repo}:/repo:ro`" -v `"${Out}:/bundles:ro`" $Image -I /repo/scripts/blackwell/publish_bundles.py /bundles/upload-plan.json > `"$log`" 2>&1"
 if ($LASTEXITCODE -ne 0) { Get-Content $log -Tail 20; throw "upload failed; see $log" }
 Get-Content $log -Tail 12
 Write-Host "PUBLISH OK"

@@ -1,7 +1,7 @@
 """Upload rebuilt bundles to the fork's private Hugging Face repo.
 
 Usage (inside the snapotter-local image; token file mounted read-only):
-    HF_TOKEN_PATH=/run/secrets/hf_token python3 -I \
+    HF_TOKEN_PATH=/run/secrets/hf_token /opt/venv/bin/python -I \
         /repo/scripts/blackwell/publish_bundles.py /bundles/upload-plan.json
 
 Reads the repo from the manifest's bundleRepo (kroegha/snapotter-bundles-cu134),
