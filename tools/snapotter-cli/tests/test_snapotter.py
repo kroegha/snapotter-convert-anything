@@ -68,8 +68,9 @@ class FakeApi(BaseHTTPRequestHandler):
         p = self.path
         if p == "/api/v1/health":
             return self._send(200, {"status": "ok"})
-        if p == "/api/v1/pipeline/tools":
-            return self._send(200, {"toolIds": ["compress-video", "convert"]})
+        if p == "/api/v1/openapi.yaml":
+            spec = "paths:\n  /api/v1/tools/video/compress-video:\n    post: {}\n  /api/v1/tools/image/brand-new:\n    post: {}\n"
+            return self._send(200, spec.encode(), "application/yaml")
         if self.headers.get("Authorization") != f"Bearer {KEY}":
             return self._send(401, {"error": "Authentication required"})
         if p == "/api/v1/features":
@@ -189,6 +190,13 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, snapotter.EXIT_USAGE)
         self.assertIn("Options: quality, resolution", err)
 
+    def test_required_setting_is_enforced(self):
+        photo = self.file("photo.jpg")
+        code, _, err = self.cli("run", "convert", photo)
+        self.assertEqual(code, snapotter.EXIT_USAGE)
+        self.assertIn("'format' is required", err)
+        self.assertIn("webp", err)
+
     def test_server_rejection_exits_3_with_its_message(self):
         bad = self.file("broken.jpg")
         code, out, err = self.cli("run", "remove-background", bad, "--json")
@@ -268,8 +276,9 @@ class CliTest(unittest.TestCase):
         rep = json.loads(out)
         self.assertEqual(rep["key"], "ok")
         self.assertEqual(rep["aiBundles"], {"transcription": "installed"})
-        self.assertEqual(rep["notInCatalog"], [])
-        self.assertTrue(rep["catalogOnly"], "tools only in the catalogue are reported")
+        self.assertEqual(rep["notInCatalog"], ["image/brand-new"])
+        self.assertEqual(len(rep["catalogOnly"]), 20)  # capped list of catalogue-only tools
+        self.assertIn("rebuild the catalogue", err)
 
     def test_unreachable_server_exits_5(self):
         os.environ["SNAPOTTER_URL"] = "http://127.0.0.1:9"

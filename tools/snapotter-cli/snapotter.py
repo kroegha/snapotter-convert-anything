@@ -119,9 +119,10 @@ def build_options(tool, pairs, warn):
         else:
             known = ", ".join(index) or "none"
             raise CliError(f"{tool['id']} has no option '{name}'. Options: {known}", EXIT_USAGE)
-    for spec in tool.get("fields", []):
-        if spec.get("required") and spec["name"] not in fields:
-            raise CliError(f"{tool['id']}: '{spec['name']}' is required (--set {spec['name']}=...)", EXIT_USAGE)
+    for spec, given in [(f, fields) for f in tool.get("fields", [])] + [(s, settings) for s in tool.get("settings", [])]:
+        if spec.get("required") and spec["name"] not in given:
+            hint = f" (one of: {', '.join(spec['choices'])})" if spec.get("choices") else ""
+            raise CliError(f"{tool['id']}: '{spec['name']}' is required: --set {spec['name']}=...{hint}", EXIT_USAGE)
     return settings, fields
 
 
@@ -607,12 +608,16 @@ def cmd_status(args, catalog, ui, client):
     report = {"server": client.url.geturl(), "cli": VERSION, "catalogTools": catalog["count"]}
     resp, data = client.request("GET", "/api/v1/health", timeout=15)
     report["health"] = "ok" if resp.status == 200 else error_message(resp, data)
-    resp, data = client.request("GET", "/api/v1/pipeline/tools", timeout=15)
+    # The server's own spec is the source the catalogue was built from, so a
+    # difference means the catalogue is stale (or the server is).
+    resp, data = client.request("GET", "/api/v1/openapi.yaml", timeout=30)
     if resp.status == 200:
-        server_ids = set(json.loads(data).get("toolIds", []))
-        catalog_ids = {t["id"] for t in catalog["tools"]}
-        report["notInCatalog"] = sorted(server_ids - catalog_ids)[:20]
-        report["catalogOnly"] = sorted(catalog_ids - server_ids)[:20]
+        spec_ids = set(re.findall(r"(?m)^  /api/v1/tools/([a-z]+/[a-z0-9-]+):\s*$", data.decode("utf-8", "replace")))
+        catalog_ids = {f"{t['section']}/{t['id']}" for t in catalog["tools"]}
+        report["notInCatalog"] = sorted(spec_ids - catalog_ids)[:20]
+        report["catalogOnly"] = sorted(catalog_ids - spec_ids)[:20]
+    else:
+        report["spec"] = error_message(resp, data)
     resp, data = client.request("GET", "/api/v1/features", timeout=15)
     if resp.status == 200:
         bundles = json.loads(data).get("bundles", [])
@@ -625,8 +630,8 @@ def cmd_status(args, catalog, ui, client):
     else:
         for k, v in report.items():
             print(f"{k}: {json.dumps(v) if isinstance(v, (dict, list)) else v}")
-        if report.get("notInCatalog") or report.get("catalogOnly"):
-            ui.warn("the catalogue and the server's tool list differ; rebuild the catalogue after an upgrade")
+    if report.get("notInCatalog") or report.get("catalogOnly"):
+        ui.warn("the catalogue and the server's tool list differ; rebuild the catalogue after an upgrade")
     healthy = report["health"] == "ok" and report.get("key") == "ok"
     return EXIT_OK if healthy else EXIT_REJECTED
 
@@ -711,6 +716,12 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("\nsnapotter: interrupted", file=sys.stderr)
         return 130
+    except BrokenPipeError:  # output piped into `head` and the like
+        try:
+            sys.stdout = open(os.devnull, "w")
+        except OSError:
+            pass
+        return EXIT_OK
 
 
 if __name__ == "__main__":
