@@ -11,7 +11,7 @@
   nvidia-smi.csv) and phase3\report.md.
 #>
 param(
-  [ValidateSet("gpu", "cpu")][string]$Mode = "gpu",
+  [ValidateSet("gpu", "cpu", "smoke")][string]$Mode = "gpu",
   [switch]$Setup,
   [switch]$Install,
   [string]$StackDir = "C:\Users\cfish\win-projects\snapotter",
@@ -48,6 +48,7 @@ if ($Mode -eq "gpu") {
 $toolArgs = "--out /out/$Mode"
 if ($Setup) { $toolArgs += " --setup" }
 if ($Install) { $toolArgs += " --install" }
+if ($Mode -eq "smoke") { $toolArgs += " --smoke" }
 Write-Host "Running tool matrix ($Mode); log: $Log"
 cmd /c "docker run --rm --network snapotter_default --entrypoint /opt/venv/bin/python -v `"${Repo}:/repo:ro`" -v `"${StackDir}:/secrets`" -v `"${Phase3}:/out`" $Image -I /repo/scripts/blackwell/verify_tools.py --base http://snapotter:1349 --env /secrets/.env $toolArgs > `"$Log`" 2>&1"
 $matrixExit = $LASTEXITCODE
@@ -60,6 +61,10 @@ if ($Mode -eq "gpu") {
   cmd /c "docker logs snapotter 2>&1" | Select-String -Pattern "will run on CPU|no kernels for it" | Select-Object -First 5
 }
 
+if ($Mode -eq "smoke") {
+  if ($matrixExit -ne 0) { throw "smoke test exited $matrixExit; see $Log" }
+  Write-Host "PHASE3 SMOKE DONE: $Out\smoke.json"; exit 0
+}
 $tz = [System.TimeZoneInfo]::Local.GetUtcOffset((Get-Date)).TotalHours
 cmd /c "docker run --rm --entrypoint python3 -v `"${Repo}:/repo:ro`" -v `"${Phase3}:/out`" $Image -I /repo/scripts/blackwell/gpu_report.py /out $tz 2>&1"
 if ($matrixExit -ne 0) { throw "tool matrix exited $matrixExit; see $Log" }

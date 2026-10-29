@@ -200,6 +200,63 @@ def run_matrix(c, out):
     return results
 
 
+def run_smoke(c, out):
+    """Non-AI smoke test (PRD criterion 5) plus live probes for the fork's
+    security fixes: each probe must be refused with a 4xx."""
+    os.makedirs(out, exist_ok=True)
+    img = f"{FIX}/image/valid/portrait-color.jpg"
+    f = lambda p, field="file": {field: (os.path.basename(p), open(p, "rb"))}  # noqa: E731
+    svg_as_tga = b'<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>'
+    playlist = b"#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\nhttp://169.254.169.254/latest/meta-data.ts\n#EXT-X-ENDLIST\n"
+    cases = [
+        ("image convert jpg->webp", "image/convert", lambda: f(img), {"format": "webp"}, "ok"),
+        ("image compress", "image/compress", lambda: f(img), {"quality": 70}, "ok"),
+        ("video compress (light, 720p)", "video/compress-video", lambda: f(f"{FIX}/video/valid/media-30s.mp4"),
+         {"quality": "light", "resolution": "720p"}, "ok"),
+        ("pdf merge (2 files)", "pdf/merge-pdf",
+         lambda: [("file", ("a.pdf", open(f"{FIX}/document/valid/test-3page.pdf", "rb"))),
+                  ("file", ("b.pdf", open(f"{FIX}/document/valid/alt-2page.pdf", "rb")))], None, "ok"),
+        ("image OCR (fast)", "image/ocr", lambda: f(f"{FIX}/image/valid/ocr-clean.png"), {"quality": "fast"}, "ok"),
+        ("pdf OCR (fast)", "pdf/ocr-pdf", lambda: f(f"{FIX}/document/valid/ocr-scanned.pdf"), {"quality": "fast"}, "ok"),
+        ("probe S5: SVG renamed .tga", "image/convert",
+         lambda: {"file": ("evil.tga", svg_as_tga)}, {"format": "png"}, "refused"),
+        ("probe S7: HLS playlist upload", "video/compress-video",
+         lambda: {"file": ("evil.m3u8", playlist)}, {"quality": "light"}, "refused"),
+    ]
+    results = []
+    for label, endpoint, files, settings, expect in cases:
+        data = {} if settings is None else {"settings": json.dumps(settings)}
+        start = time.time()
+        rec = {"case": label, "expect": expect}
+        try:
+            r = c.s.post(c.url(f"/api/v1/tools/{endpoint}"), files=files(), data=data, timeout=900)
+            rec["status"] = r.status_code
+            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            if r.status_code < 400 and (r.status_code == 202 or body.get("async")):
+                try:
+                    ev = c.wait_job(body["jobId"])
+                    body = {**body, **(ev.get("result") or {})}
+                except RuntimeError as e:
+                    rec["status"] = 422
+                    rec["error"] = str(e)[:200]
+            if expect == "ok":
+                rec["ok"] = rec["status"] < 400 and bool(body.get("downloadUrl") or body.get("text") or body)
+            else:
+                rec["ok"] = 400 <= rec["status"] < 500
+                rec.setdefault("error", (r.text or "")[:200])
+        except Exception as e:
+            rec["ok"] = False
+            rec["error"] = str(e)[:300]
+        rec["seconds"] = round(time.time() - start, 2)
+        results.append(rec)
+        print(f"[{'OK ' if rec['ok'] else 'ERR'}] {label:34s} HTTP {rec.get('status', '-')} {rec['seconds']:6.2f}s "
+              f"{rec.get('error', '') if not rec['ok'] or expect == 'refused' else ''}", flush=True)
+    with open(os.path.join(out, "smoke.json"), "w") as fh:
+        json.dump(results, fh, indent=1)
+    bad = [r for r in results if not r["ok"]]
+    print(f"SMOKE DONE: {len(results) - len(bad)}/{len(results)} OK", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://snapotter:1349")
@@ -207,6 +264,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--setup", action="store_true")
     ap.add_argument("--install", action="store_true")
+    ap.add_argument("--smoke", action="store_true", help="run the non-AI smoke test instead of the AI matrix")
     a = ap.parse_args()
     if a.setup:
         setup(a.base, a.env)
@@ -215,6 +273,9 @@ def main():
     c = Client(a.base, token)
     if a.install:
         install_all(c)
+    if a.smoke:
+        run_smoke(c, a.out)
+        return
     res = run_matrix(c, a.out)
     bad = [r for r in res if not r["ok"]]
     print(f"MATRIX DONE: {len(res) - len(bad)}/{len(res)} runs OK", flush=True)
