@@ -199,7 +199,7 @@ install_object_eraser_colorize() {
 
   # --- pip packages (huggingface-hub already from transcription) ---
   pip_install "huggingface-hub" || true  # already installed, no-op
-  pip_install "onnxruntime==1.20.1" || { fail "onnxruntime pip failed"; BUNDLE_STATUS[object-eraser-colorize]="FAILED: pip"; return 1; }
+  pip_install "onnxruntime==1.31.1" || { fail "onnxruntime pip failed"; BUNDLE_STATUS[object-eraser-colorize]="FAILED: pip"; return 1; }
 
   # --- LaMa ONNX model ---
   hf_file "Carve/LaMa-ONNX" "lama_fp32.onnx" "$MODELS/lama" 100000000 \
@@ -254,7 +254,7 @@ install_background_removal() {
   log "=== Bundle 4/7: background-removal ==="
 
   # --- pip packages ---
-  pip_install "onnxruntime==1.20.1" || true  # likely already installed
+  pip_install "onnxruntime==1.31.1" || true  # likely already installed
   pip_install "mediapipe>=0.10.18"  || true  # likely already installed
   pip_install "rembg==2.0.62"       || { fail "rembg pip failed"; BUNDLE_STATUS[background-removal]="FAILED: pip rembg"; return 1; }
 
@@ -435,7 +435,7 @@ install_photo_restoration() {
   log "=== Bundle 6/7: photo-restoration ==="
 
   # --- pip packages (all should be installed from previous bundles) ---
-  pip_install "onnxruntime==1.20.1"     || true
+  pip_install "onnxruntime==1.31.1"     || true
   pip_install "mediapipe>=0.10.18"      || true
   pip_install "huggingface-hub"         || true
   pip_install "setuptools<75"           || true

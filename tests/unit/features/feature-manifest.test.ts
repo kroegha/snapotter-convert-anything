@@ -84,6 +84,10 @@ describe("Feature manifest: cross-bundle dependency agreement", () => {
   function pinnedVersions(): Map<string, Map<string, string>> {
     const byPackage = new Map<string, Map<string, string>>();
     for (const [bundleId, bundle] of Object.entries<Record<string, unknown>>(bundles)) {
+      // v3 runtimes (OCR) ship their own isolated venv, so their pins never
+      // meet the shared bundle venv; the fork moves the shared venv to
+      // onnxruntime 1.31.1 while the signed OCR runtime stays on 1.20.1.
+      if (bundle.runtimeFormatVersion === 3) continue;
       const pkgs = bundle.packages as Record<string, string[]>;
       const specs = [...(pkgs.common ?? []), ...(pkgs.amd64 ?? []), ...(pkgs.arm64 ?? [])];
       for (const spec of specs) {
@@ -339,9 +343,12 @@ describe("Manifest v2 archive fields", () => {
   });
 
   it("has bundleRepo field", () => {
-    // Bundles are currently published to deepsafe/feature-bundles; the canonical
-    // snapotter/feature-bundles repo is restored later (see .github/workflows/ai-bundles.yml).
-    expect(manifest.bundleRepo).toBe("deepsafe/feature-bundles");
+    // Fork: AI bundles are rebuilt for CUDA 13.4 and published to our own repo.
+    expect(manifest.bundleRepo).toBe("kroegha/snapotter-bundles-cu134");
+  });
+
+  it("keeps the signed OCR runtime on upstream's repo", () => {
+    expect(manifest.ocrBundleRepo).toBe("deepsafe/feature-bundles");
   });
 
   it("every legacy v2 bundle has archives with both arch variants", () => {

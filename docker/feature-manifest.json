@@ -19,9 +19,10 @@
     "pandas==2.2.2",
     "huggingface-hub==0.36.2",
     "tokenizers==0.20.3",
-    "onnxruntime==1.20.1"
+    "onnxruntime==1.31.1"
   ],
-  "bundleRepo": "deepsafe/feature-bundles",
+  "bundleRepo": "kroegha/snapotter-bundles-cu134",
+  "ocrBundleRepo": "deepsafe/feature-bundles",
   "bundles": {
     "background-removal": {
       "name": "Background Removal",
@@ -43,8 +44,8 @@
       },
       "packages": {
         "common": ["rembg==2.0.62"],
-        "amd64": ["onnxruntime-gpu==1.20.2", "mediapipe>=0.10.21"],
-        "arm64": ["onnxruntime==1.20.1", "mediapipe>=0.10.18"]
+        "amd64": ["onnxruntime-gpu==1.31.1", "mediapipe>=0.10.21"],
+        "arm64": ["onnxruntime==1.31.1", "mediapipe>=0.10.18"]
       },
       "pipFlags": {},
       "postInstall": [],
@@ -172,8 +173,8 @@
       },
       "packages": {
         "common": ["huggingface-hub[hf_xet]==0.36.2"],
-        "amd64": ["onnxruntime-gpu==1.20.2"],
-        "arm64": ["onnxruntime==1.20.1"]
+        "amd64": ["onnxruntime-gpu==1.31.1"],
+        "arm64": ["onnxruntime==1.31.1"]
       },
       "pipFlags": {},
       "postInstall": [],
@@ -251,7 +252,7 @@
           "huggingface-hub[hf_xet]==0.36.2"
         ],
         "amd64": [
-          "torch==2.7.0+cu126 torchvision==0.22.0+cu126 --index-url https://download.pytorch.org/whl/cu126"
+          "torch==2.15.0+cu134 torchvision==0.29.2+cu134 --index-url https://download.pytorch.org/whl/cu134 --extra-index-url https://pypi.org/simple"
         ],
         "arm64": [
           "torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cpu"
@@ -299,7 +300,7 @@
           "setuptools<75"
         ],
         "amd64": [
-          "torch==2.7.0+cu126 torchvision==0.22.0+cu126 --index-url https://download.pytorch.org/whl/cu126",
+          "torch==2.15.0+cu134 torchvision==0.29.2+cu134 --index-url https://download.pytorch.org/whl/cu134 --extra-index-url https://pypi.org/simple",
           "lpips",
           "basicsr==1.4.2",
           "realesrgan==0.3.0",
@@ -418,16 +419,16 @@
       "packages": {
         "common": ["codeformer-pip==0.0.4", "huggingface-hub[hf_xet]==0.36.2", "setuptools<75"],
         "amd64": [
-          "onnxruntime-gpu==1.20.2",
+          "onnxruntime-gpu==1.31.1",
           "mediapipe>=0.10.21",
-          "torch==2.7.0+cu126 torchvision==0.22.0+cu126 --index-url https://download.pytorch.org/whl/cu126",
+          "torch==2.15.0+cu134 torchvision==0.29.2+cu134 --index-url https://download.pytorch.org/whl/cu134 --extra-index-url https://pypi.org/simple",
           "lpips",
           "basicsr==1.4.2",
           "realesrgan==0.3.0"
         ],
         "arm64": [
           "torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cpu",
-          "onnxruntime==1.20.1",
+          "onnxruntime==1.31.1",
           "mediapipe>=0.10.18",
           "lpips",
           "basicsr==1.4.2",
@@ -566,11 +567,16 @@
         }
       },
       "packages": {
-        "common": ["faster-whisper>=1.0.0", "huggingface-hub[hf_xet]==0.36.2"],
-        "amd64": ["onnxruntime-gpu==1.20.2"],
-        "arm64": ["onnxruntime==1.20.1"]
+        "common": ["faster-whisper>=1.0.0", "av==18.1.0", "huggingface-hub[hf_xet]==0.36.2"],
+        "amd64": [
+          "onnxruntime-gpu==1.31.1",
+          "/opt/snapotter-wheels/ctranslate2-4.8.4-cp312-cp312-manylinux_2_39_x86_64.whl"
+        ],
+        "arm64": ["onnxruntime==1.31.1"]
       },
-      "pipFlags": {},
+      "pipFlags": {
+        "/opt/snapotter-wheels/ctranslate2-": "--no-deps --force-reinstall"
+      },
       "postInstall": [],
       "models": [
         {

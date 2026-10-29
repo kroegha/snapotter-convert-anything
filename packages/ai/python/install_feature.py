@@ -2630,20 +2630,20 @@ def _install() -> None:
                         )
                     _abort_remediation(f"Failed to prepare onnxruntime fallback: {e}")
 
-                fix_cmd = [venv_python, "-m", "pip", "install", "--no-cache-dir", "--force-reinstall", "--no-deps", "onnxruntime==1.20.1"]
+                fix_cmd = [venv_python, "-m", "pip", "install", "--no-cache-dir", "--force-reinstall", "--no-deps", "onnxruntime==1.31.1"]
                 fix_proc = None
                 try:
                     fix_proc = subprocess.run(fix_cmd, capture_output=True, text=True, errors="replace", timeout=120)
                 except subprocess.TimeoutExpired:
                     emit_progress(94, "Fallback onnxruntime installation failed")
                     fallback_errors.append(
-                        "Fallback onnxruntime==1.20.1 installation timed out after 120s."
+                        "Fallback onnxruntime==1.31.1 installation timed out after 120s."
                     )
                     _restore_after_failed_fallback(sp_for_cleanup, "onnxruntime")
                 except OSError as e:
                     emit_progress(94, "Fallback onnxruntime installation failed")
                     fallback_errors.append(
-                        f"Fallback onnxruntime==1.20.1 installation could not be run ({e})."
+                        f"Fallback onnxruntime==1.31.1 installation could not be run ({e})."
                     )
                     _restore_after_failed_fallback(sp_for_cleanup, "onnxruntime")
 
@@ -2662,7 +2662,7 @@ def _install() -> None:
                         emit_progress(94, "Fallback onnxruntime installation failed")
                         pip_detail = _format_proc_failure(fix_proc, "pip")
                         fallback_errors.append(
-                            f"Fallback onnxruntime==1.20.1 installation failed:\n{pip_detail}"
+                            f"Fallback onnxruntime==1.31.1 installation failed:\n{pip_detail}"
                         )
                         _restore_after_failed_fallback(sp_for_cleanup, "onnxruntime")
 
