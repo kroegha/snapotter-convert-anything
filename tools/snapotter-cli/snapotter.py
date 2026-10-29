@@ -375,9 +375,14 @@ def download(client, url, dest):
         conn.close()
 
 
+_NEAR_CLEAR = bytes(0 if a < 16 else 1 for a in range(256))
+
+
 def png_transparent_pct(path, limit=200 << 20):
-    """Percent of fully transparent pixels in an 8-bit RGBA, non-interlaced PNG,
-    or None for anything else. Standard library only (zlib + PNG filters)."""
+    """Percent of (near-)transparent pixels, alpha below 16 of 255, in an 8-bit
+    RGBA non-interlaced PNG, or None for anything else. Standard library only
+    (zlib + PNG filters). A failed cut-out keeps faint alpha everywhere, so
+    alpha == 0 alone would miss it."""
     import struct
     import zlib
     try:
@@ -432,7 +437,7 @@ def png_transparent_pct(path, limit=200 << 20):
                 pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
                 pred = a if pa <= pb and pa <= pc else b if pb <= pc else c
                 line[i] = (line[i] + pred) & 0xFF
-        clear += line[3::4].count(0)
+        clear += bytes(line[3::4]).translate(_NEAR_CLEAR).count(0)
         prev = line
     return round(100.0 * clear / (width * height), 1)
 
