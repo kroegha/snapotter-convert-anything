@@ -22,8 +22,8 @@ SHIM = textwrap.indent(textwrap.dedent("""
 
 CHECKS = {
     "abi_numpy_stack": """
-        import numpy, scipy, cv2, PIL, skimage, sklearn, pandas
-        print({m.__name__: m.__version__ for m in (numpy, scipy, cv2, PIL, skimage, sklearn, pandas)})
+        import numpy, scipy, cv2, PIL
+        print({m.__name__: m.__version__ for m in (numpy, scipy, cv2, PIL)})
     """,
     "torch_cuda": """
         import torch

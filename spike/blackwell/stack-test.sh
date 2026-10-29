@@ -17,7 +17,7 @@ echo "== venv"; python3 -m venv /opt/venv; . /opt/venv/bin/activate
 pip install -q --upgrade pip wheel "setuptools<75"
 
 echo "== install bundle stack"; python3 /spike/install_stack.py
-pip install -q --no-deps onnx   # test-only: builds the tiny ONNX model for the ORT check
+pip install -q --no-deps onnx==1.16.2   # test-only: builds the tiny ONNX model for the ORT check (newer onnx needs numpy 2 ml_dtypes)
 
 echo "== GPU checks"; python3 /spike/gpu_tests.py
 echo "== done"

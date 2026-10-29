@@ -9,7 +9,7 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends python3 python3-venv ca-certificates >/dev/null
 python3 -m venv /opt/venv; . /opt/venv/bin/activate
 pip install -q /out/wheel/ctranslate2-*.whl
-pip install -q "faster-whisper>=1.0.0" numpy==1.26.4
+pip install -q "faster-whisper>=1.0.0" numpy==1.26.4 av==18.1.0
 pip install -q --no-deps --force-reinstall /out/wheel/ctranslate2-*.whl
 
 python3 - <<'PY'
