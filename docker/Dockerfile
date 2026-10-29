@@ -5,10 +5,78 @@
 # ============================================
 
 # ============================================
-# Stage 0: Static FFmpeg/FFprobe binaries
+# Stage 0: FFmpeg/FFprobe
 # ============================================
-# Multi-arch (amd64 + arm64) static builds for video/audio processing.
-FROM mwader/static-ffmpeg:8.1.2@sha256:33f770f812cbfc3de96c547157fc9faf8bd95a36481753439ffa761045167585 AS ffmpeg
+# arm64: the upstream static build (musl, CPU only).
+# amd64 (fork): built from the official release against Ubuntu 24.04's
+# libraries and NVIDIA's Video Codec SDK 13.1 headers, so NVENC/NVDEC work.
+# A fully static musl binary cannot dlopen the driver's libnvidia-encode.so.1,
+# which is why the mwader build can never use NVENC. The library list is what
+# SnapOtter calls (encoders.ts, the tool routes' filters) plus every decoder
+# library the static build had that Ubuntu packages. Not packaged, so dropped:
+# libuavs3d (AVS3) and libxevd (MPEG-5 EVC), neither a SnapOtter input format.
+# The stage writes /out/runtime-packages.txt: the Ubuntu runtime packages the
+# binaries link against, installed by the production stage.
+FROM mwader/static-ffmpeg:8.1.2@sha256:33f770f812cbfc3de96c547157fc9faf8bd95a36481753439ffa761045167585 AS ffmpeg-static
+
+# Both arch stages export the same layout: /out/ffmpeg, /out/ffprobe and
+# /out/runtime-packages.txt (empty for the static build).
+FROM node:22-bookworm@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c32f3c7b4c4a31957e37 AS ffmpeg-arm64
+COPY --from=ffmpeg-static /ffmpeg /ffprobe /out/
+RUN touch /out/runtime-packages.txt
+
+FROM ubuntu:24.04@sha256:786a8b558f7be160c6c8c4a54f9a57274f3b4fb1491cf65146521ae77ff1dc54 AS ffmpeg-amd64
+ARG FFMPEG_VERSION=8.1.3
+# sha256 of ffmpeg-${FFMPEG_VERSION}.tar.xz; the release signature was checked
+# against https://ffmpeg.org/ffmpeg-devel.asc when this pin was taken.
+ARG FFMPEG_SHA256=7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3
+ARG NV_CODEC_HEADERS_TAG=n13.1.15.0
+ARG NV_CODEC_HEADERS_COMMIT=0a6fba9a2820628b8103464f4c8753ee05838baa
+ARG FFMPEG_JOBS=16
+RUN for i in 1 2 3; do apt-get -o Acquire::Retries=3 update && break || sleep $((i * 15)); done && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      build-essential pkg-config nasm curl ca-certificates git xz-utils \
+      libx264-dev libx265-dev libsvtav1enc-dev libvpx-dev libaom-dev libdav1d-dev \
+      libopus-dev libmp3lame-dev libvorbis-dev libtheora-dev libwebp-dev libjxl-dev libopenjp2-7-dev \
+      libopencore-amrnb-dev libopencore-amrwb-dev libgsm1-dev libspeex-dev libsoxr-dev \
+      libgme-dev libmodplug-dev libbluray-dev libdavs2-dev libaribb24-dev libsnappy-dev libxml2-dev \
+      libass-dev libfreetype-dev libfontconfig-dev libharfbuzz-dev libfribidi-dev \
+      librubberband-dev libvidstab-dev libzimg-dev && \
+    rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch "${NV_CODEC_HEADERS_TAG}" https://github.com/FFmpeg/nv-codec-headers /src/nvh && \
+    test "$(git -C /src/nvh rev-parse HEAD)" = "${NV_CODEC_HEADERS_COMMIT}" && \
+    make -C /src/nvh install PREFIX=/usr/local
+RUN curl -fsSL --retry 3 -o /src/ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" && \
+    echo "${FFMPEG_SHA256}  /src/ffmpeg.tar.xz" | sha256sum -c - && \
+    mkdir -p /src/ffmpeg && tar -xJf /src/ffmpeg.tar.xz -C /src/ffmpeg --strip-components=1 && \
+    cd /src/ffmpeg && \
+    PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ./configure \
+      --prefix=/opt/ffmpeg --extra-version=snapotter-nvenc \
+      --enable-gpl --enable-version3 --disable-debug --disable-doc --disable-ffplay \
+      --enable-ffnvcodec --enable-nvenc --enable-nvdec --enable-cuvid \
+      --enable-libx264 --enable-libx265 --enable-libsvtav1 --enable-libvpx --enable-libaom --enable-libdav1d \
+      --enable-libopus --enable-libmp3lame --enable-libvorbis --enable-libtheora --enable-libwebp \
+      --enable-libjxl --enable-libopenjpeg \
+      --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libgsm --enable-libspeex --enable-libsoxr \
+      --enable-libgme --enable-libmodplug --enable-libbluray --enable-libdavs2 \
+      --enable-libaribb24 --enable-libsnappy --enable-libxml2 \
+      --enable-libass --enable-libfreetype --enable-libfontconfig --enable-libharfbuzz --enable-libfribidi \
+      --enable-librubberband --enable-libvidstab --enable-libzimg && \
+    make -j"${FFMPEG_JOBS}" && make install && \
+    for e in h264_nvenc hevc_nvenc av1_nvenc libx264 libx265 libsvtav1 libvpx-vp9 libopus libmp3lame libvorbis libtheora libwebp_anim; do \
+      /opt/ffmpeg/bin/ffmpeg -hide_banner -encoders | grep -q " ${e} " || { echo "missing encoder ${e}" >&2; exit 1; }; \
+    done && \
+    for f in subtitles drawtext rubberband vidstabdetect vidstabtransform; do \
+      /opt/ffmpeg/bin/ffmpeg -hide_banner -filters | grep -q " ${f} " || { echo "missing filter ${f}" >&2; exit 1; }; \
+    done
+# The Ubuntu packages that own the shared libraries the binaries link against.
+RUN mkdir -p /out && cp /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe /out/ && \
+    ldd /out/ffmpeg /out/ffprobe | awk '/=> \//{print $3}' | sort -u | xargs -r readlink -f | \
+      xargs -r dpkg -S 2>/dev/null | cut -d: -f1 | sort -u | grep -v '^libc6$' > /out/runtime-packages.txt && \
+    test -s /out/runtime-packages.txt && cat /out/runtime-packages.txt
+
+ARG TARGETARCH
+FROM ffmpeg-${TARGETARCH} AS ffmpeg
 
 # ============================================
 # Stage 0b: Static pdfcpu binary (pure Go, no CGO)
@@ -578,9 +646,20 @@ RUN POLICY_FILE=$(find /etc/ImageMagick* -name policy.xml 2>/dev/null | head -1)
 # Caire binary (content-aware seam carving)
 COPY --from=caire-builder /tmp/caire /usr/local/bin/caire
 
-# FFmpeg + FFprobe static binaries (video/audio engine)
-COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
-COPY --from=ffmpeg /ffprobe /usr/local/bin/ffprobe
+# FFmpeg + FFprobe (video/audio engine): static on arm64; on amd64 the fork's
+# NVENC build plus the Ubuntu runtime libraries it links against (see the
+# ffmpeg-amd64 stage). The final -version run fails the build on any missing
+# shared library.
+COPY --from=ffmpeg /out/ /tmp/ffmpeg-dist/
+RUN if [ -s /tmp/ffmpeg-dist/runtime-packages.txt ]; then \
+      for i in 1 2 3; do apt-get -o Acquire::Retries=3 update && break || sleep $((i * 15)); done && \
+      xargs -a /tmp/ffmpeg-dist/runtime-packages.txt apt-get install -y --no-install-recommends && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi && \
+    install -m 0755 /tmp/ffmpeg-dist/ffmpeg /tmp/ffmpeg-dist/ffprobe /usr/local/bin/ && \
+    rm -rf /tmp/ffmpeg-dist && \
+    ffmpeg -hide_banner -version > /tmp/ffmpeg-version && ffprobe -hide_banner -version > /dev/null && \
+    head -1 /tmp/ffmpeg-version && rm -f /tmp/ffmpeg-version
 
 # pdfcpu static binary (PDF layout: crop, n-up, booklet, stamps)
 COPY --from=pdfcpu-builder /tmp/pdfcpu /usr/local/bin/pdfcpu
@@ -836,8 +915,9 @@ ENV SENTRY_RELEASE=${SENTRY_RELEASE}
 # on first boot if unset (see apps/api/src/index.ts). Override via runtime env to pin it.
 
 # NVIDIA Container Toolkit env vars (harmless on non-GPU systems)
+# `video` (fork) makes the runtime mount libnvidia-encode/libnvcuvid for NVENC/NVDEC.
 ENV NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
 
 # s6-overlay (embedded mode): propagate the runtime-exported environment (the
 # 127.0.0.1 URLs, resolved _FILE secrets, auth defaults) into supervised

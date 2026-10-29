@@ -44,7 +44,7 @@ describe("Dockerfile build args", () => {
       const externalBases = source
         .split(/\r?\n/)
         .filter((line) => /^FROM\s+/.test(line))
-        .filter((line) => !/^FROM\s+(?:libheif-base-|base-|ctranslate2-builder-)\$\{/.test(line));
+        .filter((line) => !/^FROM\s+(?:libheif-base-|base-|ctranslate2-builder-|ffmpeg-)\$\{/.test(line));
 
       expect(externalBases.length, `${name} should contain external bases`).toBeGreaterThan(0);
       for (const base of externalBases) {

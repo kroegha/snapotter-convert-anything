@@ -13,3 +13,9 @@ convert -list policy | grep -q "MVG,MSL,TEXT,TXT"
 echo "ImageMagick policy hardened"
 grep -q "enabled: false" /app/packages/shared/src/analytics/baked.ts && echo "analytics baked off"
 echo "CUDA ${CUDA_VERSION:-?}"
+ffmpeg -hide_banner -version | head -1
+for e in h264_nvenc hevc_nvenc av1_nvenc libx264; do
+  ffmpeg -hide_banner -encoders 2>/dev/null | grep -q " ${e} " || { echo "ffmpeg lacks ${e}" >&2; exit 1; }
+done
+echo "ffmpeg lists h264_nvenc hevc_nvenc av1_nvenc"
+echo "NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-?}"
