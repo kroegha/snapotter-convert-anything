@@ -30,10 +30,10 @@
       "estimatedSize": "4-5 GB",
       "archives": {
         "amd64-gpu": {
-          "file": "v2.0.0/background-removal-amd64-gpu-r2.tar.gz",
-          "sha256": "61a7036d3c78a410b2237bd158b8f9d6ac51c38a623f3506243b608e62f92d33",
-          "compressedSize": 4826542966,
-          "extractedSize": 7177444273
+          "file": "cu134-v1/background-removal-amd64-gpu-r1.tar.gz",
+          "sha256": "89657a12a33cd1a0a84c2f882b8c15b1443eec5e40fa689af6569bd55f501faa",
+          "compressedSize": 4744376174,
+          "extractedSize": 6571138703
         },
         "arm64-cpu": {
           "file": "v2.0.0/background-removal-arm64-cpu-r2.tar.gz",
@@ -115,10 +115,10 @@
       "estimatedSize": "200-300 MB",
       "archives": {
         "amd64-gpu": {
-          "file": "v2.0.0/face-detection-amd64-gpu-r2.tar.gz",
-          "sha256": "ff242709bd03befe424fa5096a9d60c6b70f22fcef8af803a1c86838140832be",
-          "compressedSize": 88895081,
-          "extractedSize": 260502197
+          "file": "cu134-v1/face-detection-amd64-gpu-r1.tar.gz",
+          "sha256": "b67f4a2f06d033a90289fe75af0a84becc57c509a0931f5eb65bea01f00bb344",
+          "compressedSize": 63292841,
+          "extractedSize": 184077127
         },
         "arm64-cpu": {
           "file": "v2.0.0/face-detection-arm64-cpu-r2.tar.gz",
@@ -159,10 +159,10 @@
       "estimatedSize": "1-2 GB",
       "archives": {
         "amd64-gpu": {
-          "file": "v2.0.0/object-eraser-colorize-amd64-gpu-r2.tar.gz",
-          "sha256": "0d858f287b9ab57a60e9e3209eae1c14a6a0792687f7105d40b1f4c2a19ef102",
-          "compressedSize": 1532343662,
-          "extractedSize": 2204704276
+          "file": "cu134-v1/object-eraser-colorize-amd64-gpu-r1.tar.gz",
+          "sha256": "20c9ccf1de96dcfd039f102acd26946f51c6432869cd3684f0b93648e7619c1f",
+          "compressedSize": 1475567259,
+          "extractedSize": 1673683925
         },
         "arm64-cpu": {
           "file": "v2.0.0/object-eraser-colorize-arm64-cpu-r3.tar.gz",
@@ -231,10 +231,10 @@
       "estimatedSize": "5-7 GB",
       "archives": {
         "amd64-gpu": {
-          "file": "v2.0.0/inpaint-hq-amd64-gpu.tar.gz",
-          "sha256": "da65c2b7e678b50815c7c2d8ae4594ad7bbf4c1e84682bfc91b46948cdff71de",
-          "compressedSize": 7283076233,
-          "extractedSize": 10745029298
+          "file": "cu134-v1/inpaint-hq-amd64-gpu-r1.tar.gz",
+          "sha256": "57d05482240a66a5cd57768147c6b5310f34c11ff3fa39b17f5fbf8e163831d6",
+          "compressedSize": 5866450169,
+          "extractedSize": 8762174436
         },
         "arm64-cpu": {
           "file": "v2.0.0/inpaint-hq-arm64-cpu.tar.gz",
@@ -280,10 +280,10 @@
       "estimatedSize": "4-5 GB",
       "archives": {
         "amd64-gpu": {
-          "file": "v2.0.0/upscale-enhance-amd64-gpu-r2.tar.gz",
-          "sha256": "81f0c688abcdd277fbcdd5501aa22a4fe789e08fe9822811ea326a3de1a8b15d",
-          "compressedSize": 5371590150,
-          "extractedSize": 8454624391
+          "file": "cu134-v1/upscale-enhance-amd64-gpu-r1.tar.gz",
+          "sha256": "5dc67f132cedb64bbb1c78057ac7af83b4d4f36d090e92ea678b6f4d23e9eeb9",
+          "compressedSize": 5337621097,
+          "extractedSize": 8493246908
         },
         "arm64-cpu": {
           "file": "v2.0.0/upscale-enhance-arm64-cpu-r2.tar.gz",
@@ -404,10 +404,10 @@
       "estimatedSize": "800 MB - 1 GB",
       "archives": {
         "amd64-gpu": {
-          "file": "v2.0.0/photo-restoration-amd64-gpu-r2.tar.gz",
-          "sha256": "38c82e61acf03980b97f6f2a4754dd7cdbc3d4d64f864bf2776168fc8fb91eea",
-          "compressedSize": 4693244387,
-          "extractedSize": 8220630756
+          "file": "cu134-v1/photo-restoration-amd64-gpu-r1.tar.gz",
+          "sha256": "0b9bf38c6d3a333524fadea5772fae48e10d9e08f1ea94cccc4b1c7c666b8aa0",
+          "compressedSize": 4623366834,
+          "extractedSize": 7802191183
         },
         "arm64-cpu": {
           "file": "v2.0.0/photo-restoration-arm64-cpu-r2.tar.gz",
@@ -554,10 +554,10 @@
       "estimatedSize": "600 MB",
       "archives": {
         "amd64-gpu": {
-          "file": "v2.0.0/transcription-amd64-gpu-r2.tar.gz",
-          "sha256": "6229180f698d1ceb0866df4b1c091ed4a89f6324427d373dbbc13a763ae26ce2",
-          "compressedSize": 845757082,
-          "extractedSize": 1647328796
+          "file": "cu134-v1/transcription-amd64-gpu-r1.tar.gz",
+          "sha256": "4297c2b28fbbc805d9d136be4ea4c71787ffb0aa1c5b3019c6c584e46d67a8cb",
+          "compressedSize": 773497095,
+          "extractedSize": 1073761239
         },
         "arm64-cpu": {
           "file": "v2.0.0/transcription-arm64-cpu-r3.tar.gz",

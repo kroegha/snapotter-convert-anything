@@ -409,10 +409,12 @@ describe("Manifest v2 archive fields", () => {
       if (bundle.runtimeFormatVersion === 3) continue;
       const archives = bundle.archives as Record<string, Record<string, unknown>>;
       for (const arch of ARCH_VARIANTS) {
-        expect(
-          archives[arch].file as string,
-          `${id}/${arch} file should include v${version}/`,
-        ).toContain(`v${version}/`);
+        // Fork: amd64-gpu bundles are rebuilt for CUDA 13.4 and published
+        // under the fork's release prefix; arm64 keeps upstream's archives.
+        const prefix = arch === "amd64-gpu" ? "cu134-v1/" : `v${version}/`;
+        expect(archives[arch].file as string, `${id}/${arch} file should start with ${prefix}`).toMatch(
+          new RegExp(`^${prefix.replace(/\./g, "\\.")}`),
+        );
       }
     }
   });
