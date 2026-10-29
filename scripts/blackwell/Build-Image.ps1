@@ -28,11 +28,8 @@ cmd /c "docker build --platform linux/amd64 --file `"$Dockerfile`" --build-arg S
 if ($LASTEXITCODE -ne 0) { Get-Content $Log -Tail 30; throw "docker build failed ($LASTEXITCODE); see $Log" }
 
 Write-Host "== Verifying the image"
-& docker run --rm --entrypoint bash $Image -c @'
-set -e
-ls /opt/snapotter-wheels/ctranslate2-*.whl
-python3 -c "import json; m=json.load(open('/app/docker/feature-manifest.json')); print('bundleRepo', m['bundleRepo'], '| ocrBundleRepo', m['ocrBundleRepo'])"
-convert -list policy | grep -q "MVG,MSL,TEXT,TXT" && echo "ImageMagick policy hardened"
-'@ *>&1 | Tee-Object -FilePath $Log -Append
-if ($LASTEXITCODE -ne 0) { throw "image verification failed; see $Log" }
+$Verify = Join-Path $PSScriptRoot "verify-image.sh"
+cmd /c "docker run --rm --entrypoint bash -v `"${Verify}:/verify-image.sh:ro`" $Image /verify-image.sh >> `"$Log`" 2>&1"
+if ($LASTEXITCODE -ne 0) { Get-Content $Log -Tail 20; throw "image verification failed; see $Log" }
+Get-Content $Log -Tail 6
 Write-Host "IMAGE BUILD OK: $Image"
