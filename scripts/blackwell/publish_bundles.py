@@ -12,6 +12,7 @@ skipped, so the script can be re-run after an interruption.
 import json
 import os
 import sys
+import time
 
 from huggingface_hub import HfApi
 
@@ -42,13 +43,24 @@ def main():
             continue
         size = os.path.getsize(item["local"]) / 2**30
         print(f"> {path} ({size:.2f} GiB)", flush=True)
-        api.upload_file(
-            path_or_fileobj=item["local"],
-            path_in_repo=path,
-            repo_id=repo,
-            repo_type="model",
-            commit_message=f"{item['bundle']} amd64-gpu (CUDA 13.4, sha256 {item['sha256'][:12]})",
-        )
+        # Transient Xet/CAS network errors happen on multi-GB uploads; Xet only
+        # re-sends chunks the server lacks, so a retry resumes cheaply.
+        for attempt in range(1, 7):
+            try:
+                api.upload_file(
+                    path_or_fileobj=item["local"],
+                    path_in_repo=path,
+                    repo_id=repo,
+                    repo_type="model",
+                    commit_message=f"{item['bundle']} amd64-gpu (CUDA 13.4, sha256 {item['sha256'][:12]})",
+                )
+                break
+            except Exception as e:  # noqa: BLE001
+                if attempt == 6:
+                    raise
+                wait = min(300, 15 * 2 ** (attempt - 1))
+                print(f"  ! attempt {attempt} failed ({type(e).__name__}: {str(e)[:160]}); retrying in {wait}s", flush=True)
+                time.sleep(wait)
     print("publish complete", flush=True)
 
 
