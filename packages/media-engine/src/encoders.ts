@@ -436,6 +436,43 @@ export function rateControlArgs(encoder: string, crf: number): string[] {
   }
 }
 
+/**
+ * Fork (Blackwell phase 2): the software equivalent of an NVENC command line
+ * built by videoCodecArgs, for a retry when the NVENC encode itself fails at
+ * run time (frames below NVENC's minimum size, e.g. a 100x100 GIF where
+ * h264_nvenc needs 145 px; an exhausted session; a driver fault). Swaps the
+ * `-c:v <nvenc> -rc vbr -cq N -b:v 0 -preset p5` run for the software encoder
+ * at the CRF that produced N. Null when the arguments were not built that way.
+ */
+export function softwareFallbackArgs(args: readonly string[]): string[] | null {
+  const at = args.indexOf("-c:v");
+  if (at === -1) return null;
+  const encoder = args[at + 1];
+  const target = RATE_CONTROLLED.find((t) => NVENC[t] === encoder);
+  if (!target) return null;
+  const expected = ["-rc", "vbr", "-cq", undefined, "-b:v", "0", "-preset", "p5"];
+  const run = args.slice(at + 2, at + 2 + expected.length);
+  if (run.length !== expected.length || expected.some((v, i) => v !== undefined && run[i] !== v))
+    return null;
+  const cq = Number.parseInt(run[3], 10);
+  if (!Number.isInteger(cq)) return null;
+  let crf = cq;
+  if (target === "h264") {
+    // Invert the calibration: the CRF whose cq is closest to (preferably equal) this one.
+    crf = 0;
+    for (let c = 0; c <= 51; c++) {
+      if (Math.abs(h264NvencCq(c) - cq) < Math.abs(h264NvencCq(crf) - cq)) crf = c;
+    }
+  }
+  return [
+    ...args.slice(0, at),
+    "-c:v",
+    SOFTWARE[target],
+    ...rateControlArgs(SOFTWARE[target], Math.min(51, Math.max(0, crf))),
+    ...args.slice(at + 2 + expected.length),
+  ];
+}
+
 /** Which of the encoder maps above `encoder` came from, for a rate-controlled target. */
 function rateControlFamily(encoder: string): "software" | "nvenc" | "vaapi" | null {
   for (const target of RATE_CONTROLLED) {

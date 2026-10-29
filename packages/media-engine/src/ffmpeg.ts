@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { markToolInputError, SafeError, wrapWithMemoryLimit } from "@snapotter/shared";
 import { resolveFfmpeg } from "./binaries.js";
+import { softwareFallbackArgs } from "./encoders.js";
 import { withInputProtocolWhitelist } from "./protocols.js";
 import { type FfmpegProgress, parseProgressBlock } from "./progress.js";
 
@@ -79,6 +80,40 @@ export function usesCudaDevice(args: readonly string[]): boolean {
 export async function runFfmpeg(args: string[], opts: RunFfmpegOptions = {}): Promise<string> {
   const bin = resolveFfmpeg();
   if (!bin) throw new Error("ffmpeg binary not found (set FFMPEG_PATH or install ffmpeg)");
+  try {
+    return await runFfmpegOnce(bin, args, opts);
+  } catch (err) {
+    // Fork (Blackwell phase 2): one software retry when NVENC itself failed.
+    const fallback =
+      !opts.signal?.aborted && isNvencFailure(err) ? softwareFallbackArgs(args) : null;
+    if (!fallback) throw err;
+    console.warn(
+      JSON.stringify({
+        msg: "NVENC encode failed; retrying on the software encoder",
+        reason: nvencReason(err),
+      }),
+    );
+    return runFfmpegOnce(bin, fallback, opts);
+  }
+}
+
+const NVENC_FAILURE =
+  /(\[h264_nvenc|\[hevc_nvenc|\[av1_nvenc|OpenEncodeSession|cuInit|CUDA_ERROR|Frame Dimension less than|No capable devices|libnvidia-encode)/i;
+
+function isNvencFailure(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    /^ffmpeg exited \d+:/.test(err.message) &&
+    NVENC_FAILURE.test(err.message)
+  );
+}
+
+function nvencReason(err: unknown): string {
+  const line = (err as Error).message.split("\n").find((l) => NVENC_FAILURE.test(l));
+  return (line ?? "").trim().slice(0, 200);
+}
+
+function runFfmpegOnce(bin: string, args: string[], opts: RunFfmpegOptions): Promise<string> {
   return new Promise<string>((resolvePromise, reject) => {
     const fullArgs = [
       "-hide_banner",
