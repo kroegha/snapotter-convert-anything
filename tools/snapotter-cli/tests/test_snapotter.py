@@ -21,6 +21,7 @@ KEY = "sk_test_DO-NOT-PRINT-0123456789"
 
 class FakeApi(BaseHTTPRequestHandler):
     requests = []  # (method, path, headers, body) of every request
+    release = threading.Event()  # ends the job-slow stream
 
     def log_message(self, *args):
         pass
@@ -77,6 +78,14 @@ class FakeApi(BaseHTTPRequestHandler):
             return self._send(200, {"bundles": [{"id": "transcription", "status": "installed"}]})
         if p.startswith("/api/v1/jobs/") and p.endswith("/progress"):
             job = p.split("/")[4]
+            if job == "job-slow":  # one progress event, then silence: a long encode
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(b'data: {"phase": "processing", "percent": 10}\n\n')
+                self.wfile.flush()
+                FakeApi.release.wait(10)
+                return
             events = [{"phase": "processing", "percent": 50, "stage": "encoding"}]
             if job == "job-fail":
                 events.append({"phase": "failed", "error": "model not installed"})
@@ -255,6 +264,17 @@ class CliTest(unittest.TestCase):
         code, out, _ = self.cli("wait", "job-video", "--out", self.dir + os.sep, "--json")
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out)["output"], os.path.join(self.dir, "clip_compressed.mp4"))
+
+    def test_wait_timeout_on_quiet_stream_exits_6_on_time(self):
+        import time
+        start = time.time()
+        try:
+            code, _, err = self.cli("wait", "job-slow", "--timeout", "2")
+        finally:
+            FakeApi.release.set()
+        self.assertEqual(code, snapotter.EXIT_PENDING)
+        self.assertIn("snapotter wait job-slow", err)
+        self.assertLess(time.time() - start, 5)
 
     # ── safety ───────────────────────────────────────────────────────────────
 

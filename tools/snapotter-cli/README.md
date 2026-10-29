@@ -43,7 +43,7 @@ snapotter status
 Results are written next to the input with SnapOtter's suffix and never
 overwrite an existing file unless `--force` is given. `--json` prints one
 object per result. Exit codes: 0 ok, 1 error, 2 usage, 3 rejected by the
-server, 4 job failed, 5 server unreachable, 130 interrupted.
+server, 4 job failed, 5 server unreachable, 6 still running at `--timeout` (run `snapotter wait <jobId>` again), 130 interrupted.
 
 ## Tests (any machine)
 

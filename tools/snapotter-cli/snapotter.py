@@ -18,7 +18,8 @@ key read from a file. Standard library only.
 Results are written next to the input (or to --out) and never overwrite an
 existing file unless --force is given. --json prints one JSON object per
 result on stdout. Exit codes: 0 ok, 1 unexpected error, 2 bad arguments or
-settings, 3 rejected by the server, 4 the job failed, 5 cannot reach the server.
+settings, 3 rejected by the server, 4 the job failed, 5 cannot reach the server,
+6 still running when --timeout ran out (run `snapotter wait <jobId>` again).
 
 Key file: %USERPROFILE%\\.config\\snapotter\\key (Windows) or
 ~/.config/snapotter/key, or the path in SNAPOTTER_KEY_FILE. The key is never
@@ -44,7 +45,7 @@ DEFAULT_BASE = "http://127.0.0.1:1349"
 CATALOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools.json")
 CHUNK = 1 << 20
 
-EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_REJECTED, EXIT_FAILED, EXIT_UNREACHABLE = 0, 1, 2, 3, 4, 5
+EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_REJECTED, EXIT_FAILED, EXIT_UNREACHABLE, EXIT_PENDING = 0, 1, 2, 3, 4, 5, 6
 
 
 class CliError(Exception):
@@ -268,18 +269,32 @@ def error_message(resp, data):
 def wait_for_job(client, job_id, progress, timeout=None):
     """Follow the job's SSE stream to its terminal event; reconnect on drops."""
     deadline = time.time() + timeout if timeout else None
+
+    def pending():
+        return CliError(f"job {job_id} still running after {timeout}s (resume: snapotter wait {job_id})",
+                        EXIT_PENDING)
+
     attempts = 0
     while True:
+        if deadline and time.time() >= deadline:
+            raise pending()
+        # The socket timeout doubles as the --timeout deadline, so a quiet
+        # stream cannot hold the CLI past it.
+        sock_timeout = max(1, deadline - time.time()) if deadline else 3600
         conn, resp = client.request("GET", f"/api/v1/jobs/{urllib.parse.quote(job_id)}/progress",
-                                    headers={"Accept": "text/event-stream"}, timeout=3600, stream=True)
+                                    headers={"Accept": "text/event-stream"}, timeout=sock_timeout, stream=True)
         try:
             if resp.status >= 400:
                 raise CliError(f"progress for job {job_id}: {error_message(resp, resp.read())}", EXIT_REJECTED)
             while True:
-                if deadline and time.time() > deadline:
-                    raise CliError(f"job {job_id} still running after {timeout}s (resume: snapotter wait {job_id})",
-                                   EXIT_FAILED)
-                line = resp.readline()
+                if deadline and time.time() >= deadline:
+                    raise pending()
+                try:
+                    line = resp.readline()
+                except (TimeoutError, OSError):
+                    if deadline and time.time() >= deadline - 0.5:
+                        raise pending()
+                    break
                 if not line:
                     break
                 line = line.decode("utf-8", "replace").strip()
@@ -302,7 +317,10 @@ def wait_for_job(client, job_id, progress, timeout=None):
         attempts += 1
         if attempts > 20:
             raise CliError(f"lost the progress stream for job {job_id} (resume: snapotter wait {job_id})", EXIT_FAILED)
-        time.sleep(min(30, 2 * attempts))
+        pause = min(30, 2 * attempts)
+        if deadline:
+            pause = min(pause, max(0, deadline - time.time()))
+        time.sleep(pause)
 
 
 def free_path(path, force):
