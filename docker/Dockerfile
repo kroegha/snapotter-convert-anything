@@ -559,6 +559,22 @@ RUN POLICY_FILE=$(find /etc/ImageMagick* -name policy.xml 2>/dev/null | head -1)
       sed -i 's/<policy domain="coder" rights="none" pattern="XPS"/<policy domain="coder" rights="read" pattern="XPS"/' "$POLICY_FILE"; \
     fi
 
+# Fork hardening (review finding S6): deny the pseudo-coders and delegates an
+# upload has no business reaching -- MVG/MSL scripts, TXT pixel dumps, label
+# text, URL/HTTP fetches, ImageMagick's own SVG readers (SVG goes through
+# SnapOtter's sanitiser and resvg instead) -- and @file indirection. Delegate
+# names match in upper case. Ghostscript stays for EPS/PS/PDF read.
+RUN POLICY_FILE=$(find /etc/ImageMagick* -name policy.xml 2>/dev/null | head -1) && \
+    test -n "$POLICY_FILE" && \
+    sed -i 's#</policymap>#  <!-- snapotter fork hardening -->\n  <policy domain="coder" rights="none" pattern="{MVG,MSL,TEXT,TXT,LABEL,CAPTION,URL,HTTP,HTTPS,FTP,EPHEMERAL,SHOW,WIN,PLT,X,VID,SVG,MSVG,RSVG}" />\n  <policy domain="delegate" rights="none" pattern="{SVG,MSVG,RSVG,MVG,TXT,URL,HTTP,HTTPS,FTP,SHOW,WIN}" />\n  <policy domain="path" rights="none" pattern="@*" />\n</policymap>#' "$POLICY_FILE" && \
+    convert -list policy | grep -q "MVG,MSL,TEXT,TXT" && \
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>' > /tmp/policy-probe.tga && \
+    if convert /tmp/policy-probe.tga png:/tmp/policy-probe.png 2>/dev/null; then \
+      echo "ImageMagick policy hardening did not apply" >&2; exit 1; \
+    fi && \
+    convert -size 4x4 xc:red tga:/tmp/policy-ok.tga && convert tga:/tmp/policy-ok.tga png:/tmp/policy-ok.png && \
+    rm -f /tmp/policy-probe.* /tmp/policy-ok.*
+
 # Caire binary (content-aware seam carving)
 COPY --from=caire-builder /tmp/caire /usr/local/bin/caire
 
