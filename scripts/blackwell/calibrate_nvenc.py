@@ -47,10 +47,27 @@ def run(cmd):
     return time.time() - t, r.stderr
 
 
+def frame_rate(src):
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+                        "-of", "csv=p=0", src], capture_output=True, text=True)
+    num, den = r.stdout.strip().split("/")
+    return float(num) / float(den)
+
+
 def encode(src, ss, dur, out, video_args):
-    secs, _ = run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", str(ss), "-t", str(dur),
-                   "-i", src, "-an", *video_args, "-pix_fmt", "yuv420p", out])
-    return secs, os.path.getsize(out)
+    """Encode the excerpt; retry once when the output is short (one 4K libx264
+    run returned 0 with a truncated file)."""
+    want = int(dur * frame_rate(src) * 0.98)
+    for _ in range(2):
+        secs, _ = run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", str(ss), "-t", str(dur),
+                       "-i", src, "-an", *video_args, "-pix_fmt", "yuv420p", out])
+        r = subprocess.run(["ffprobe", "-v", "error", "-count_packets", "-select_streams", "v:0",
+                            "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", out],
+                           capture_output=True, text=True)
+        if int((r.stdout.strip() or "0").rstrip(",")) >= want:
+            return secs, os.path.getsize(out)
+        print(f"short output ({r.stdout.strip()} of {want} frames), retrying", flush=True)
+    raise RuntimeError(f"encode of {src} kept producing short output")
 
 
 def vmaf(vmaf_bin, dist, src, ss, dur):
@@ -108,7 +125,8 @@ def summarize(results, out, codec):
     sw = {(r["clip"], r["crf"]): r for r in results if r["config"] == "software"}
     clips = sorted({r["clip"] for r in results})
     lines = [f"# NVENC calibration ({codec})", "",
-             "Pass = on every clip, VMAF >= software - 1 and size <= 1.15x software.", "",
+             "Pass = on every clip, VMAF >= software - 1 and size <= 1.15x software. "
+             "Chosen offset = the largest passing offset whose worst clip is within 0.5 VMAF of software.", "",
              "| CRF | Config | Passing offsets | Chosen offset | Worst dVMAF | Worst size ratio | Mean NVENC/software time |",
              "|---|---|---|---|---|---|---|"]
     choice = {}
@@ -125,15 +143,18 @@ def summarize(results, out, codec):
                 stats[off] = (min(dv), max(sr), sum(tr) / len(tr))
                 if min(dv) >= -1.0 and max(sr) <= 1.15:
                     passing.append(off)
-            # Smallest passing offset = closest to software quality, the lowest-risk pick.
-            pick = min(passing) if passing else None
+            # Equal quality: the largest offset (smallest files) whose worst clip
+            # stays within 0.5 VMAF of software -- half the allowed point, as a
+            # margin for content unlike the test clips.
+            safe = [o for o in passing if stats[o][0] >= -0.5]
+            pick = max(safe) if safe else (min(passing) if passing else None)
             if pick is not None and (crf not in choice or stats[pick][1] < choice[crf][2]):
                 choice[crf] = (name, pick, stats[pick][1])
             s = stats.get(pick) if pick is not None else None
             lines.append(f"| {crf} | {name} | {', '.join(map(str, passing)) or 'none'} | "
                          f"{pick if pick is not None else '-'} | {s[0]:+.2f} | {s[1]:.2f} | {s[2]:.2f} |" if s else
                          f"| {crf} | {name} | none | - | - | - | - |")
-    lines += ["", "Chosen per CRF (smallest size ratio among configs that pass):", ""]
+    lines += ["", "Chosen per CRF (smallest size ratio among configs whose pick passes):", ""]
     for crf in CRFS:
         lines.append(f"- CRF {crf}: " + (f"{choice[crf][0]}, offset +{choice[crf][1]}" if crf in choice else "no config passes"))
     with open(os.path.join(out, f"calibration-{codec}.md"), "w") as fh:
