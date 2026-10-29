@@ -25,6 +25,12 @@ FROM node:22-bookworm@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c32f3c7
 COPY --from=ffmpeg-static /ffmpeg /ffprobe /out/
 RUN touch /out/runtime-packages.txt
 
+# Optional pre-fetched source: Build-Image.ps1 passes
+# --build-context ffmpeg-src=<dir holding ffmpeg-${FFMPEG_VERSION}.tar.xz> so a
+# flaky route to ffmpeg.org cannot fail the build; without it the stage below
+# downloads the tarball. Either way the SHA-256 pin is checked.
+FROM scratch AS ffmpeg-src
+
 FROM ubuntu:24.04@sha256:786a8b558f7be160c6c8c4a54f9a57274f3b4fb1491cf65146521ae77ff1dc54 AS ffmpeg-amd64
 ARG FFMPEG_VERSION=8.1.3
 # sha256 of ffmpeg-${FFMPEG_VERSION}.tar.xz; the release signature was checked
@@ -46,7 +52,13 @@ RUN for i in 1 2 3; do apt-get -o Acquire::Retries=3 update && break || sleep $(
 RUN git clone --depth 1 --branch "${NV_CODEC_HEADERS_TAG}" https://github.com/FFmpeg/nv-codec-headers /src/nvh && \
     test "$(git -C /src/nvh rev-parse HEAD)" = "${NV_CODEC_HEADERS_COMMIT}" && \
     make -C /src/nvh install PREFIX=/usr/local
-RUN curl -fsSL --retry 3 -o /src/ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" && \
+COPY --from=ffmpeg-src / /src/dl/
+RUN if [ -f "/src/dl/ffmpeg-${FFMPEG_VERSION}.tar.xz" ]; then \
+      cp "/src/dl/ffmpeg-${FFMPEG_VERSION}.tar.xz" /src/ffmpeg.tar.xz; \
+    else \
+      curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 --connect-timeout 30 \
+        -o /src/ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
+    fi && \
     echo "${FFMPEG_SHA256}  /src/ffmpeg.tar.xz" | sha256sum -c - && \
     mkdir -p /src/ffmpeg && tar -xJf /src/ffmpeg.tar.xz -C /src/ffmpeg --strip-components=1 && \
     cd /src/ffmpeg && \
