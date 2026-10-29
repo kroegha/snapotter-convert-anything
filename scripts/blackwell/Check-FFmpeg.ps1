@@ -2,7 +2,7 @@
 .SYNOPSIS
   Phase 2 check of the NVENC FFmpeg build (PRD criteria 1 and 5).
 .DESCRIPTION
-  1. Inventories ffmpeg in the previous image (-Old) and the new one (-New)
+  1. Inventories ffmpeg in the running release (-Old) and a candidate build (-New)
      and lists everything the new build lost.
   2. Runs the app's own one-frame trial encode for h264/hevc/av1_nvenc and an
      NVDEC decode in the new image with the GPU and the `video` capability.
@@ -14,7 +14,7 @@ param(
   # PowerShell names are case-insensitive: keep these distinct from the
   # inventory variables below.
   [string]$Old = "snapotter-local:cu134",
-  [string]$New = "snapotter-local:cu134-nvenc"
+  [string]$New = "snapotter-local:cu134-next"
 )
 $ErrorActionPreference = "Stop"
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path

@@ -12,7 +12,7 @@
   start it detached and follow snapotter-build\phase3\video\<tag>\verify.log.
 #>
 param(
-  [string]$Image = "snapotter-local:cu134-nvenc",
+  [string]$Image = "snapotter-local:cu134",
   [string]$StackDir = "C:\Users\cfish\win-projects\snapotter",
   [ValidateSet("both", "nvenc", "software")][string]$Runs = "both"
 )

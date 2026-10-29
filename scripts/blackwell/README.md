@@ -73,38 +73,68 @@ Pass criteria (PRD §3):
 4. `report.md` timing table: GPU against the CPU path on the same image.
 5. Non-AI smoke test: image convert, video compress, PDF merge, OCR.
 
-## Phase 2 — NVENC hardware video encoding
+## NVENC hardware video encoding (released as `blackwell-cu134-v2`)
 
 The amd64 image builds FFmpeg 8.1.3 from the official release (SHA-256 pinned,
 signed by the FFmpeg release key) against NVIDIA's Video Codec SDK 13.1
 headers and Ubuntu 24.04's libraries. `compose.raider.yaml` asks for the
 `video` driver capability and defaults `SNAPOTTER_HW_ACCEL` to `nvenc`, so
-every tool that outputs H.264 encodes on the 5090. Set `SNAPOTTER_HW_ACCEL=`
-(empty) in `.env` to force software.
+every tool that outputs H.264 encodes on the 5090. `h264_nvenc`'s quality is
+calibrated against libx264 (`H264_NVENC_CQ_OFFSET` in
+`packages/media-engine/src/encoders.ts`), and a failed NVENC encode retries
+once on software. Set `SNAPOTTER_HW_ACCEL=` (empty) in `.env` to force
+software for everything.
+
+Known limits: GeForce cards allow 8 concurrent NVENC sessions, and
+`CONCURRENT_JOBS=3` gives the media pool one job, so keep `CONCURRENT_JOBS` at
+17 or below. Screen recordings come out 1.25-1.6x larger on NVENC than on
+software (at higher quality).
+
+## Image tags and upgrades
+
+| Tag | Meaning |
+|---|---|
+| `snapotter-local:cu134` | The running release. `compose.raider.yaml` uses it. |
+| `snapotter-local:cu134-next` | A candidate build, not yet running. |
+| `snapotter-local:cu134-prev` | The release before the last promotion, kept for rollback. |
+
+Every rebuild (an upstream release, a dependency bump, a fork change) follows
+the same steps. All commands run in PowerShell on the Raider from
+`C:\Users\cfish\win-projects\snapotter-convert-anything`.
 
 | Step | Command | Time |
 |---|---|---|
-| 1. Image | `.\scripts\blackwell\Build-Image.ps1 -Image snapotter-local:cu134-nvenc` | 20-40 min |
+| 1. Build the candidate | `.\scripts\blackwell\Build-Image.ps1 -Image snapotter-local:cu134-next` | 60-75 min with an empty build cache, minutes after |
 | 2. FFmpeg parity + NVENC probe | `.\scripts\blackwell\Check-FFmpeg.ps1` | 1 min |
-| 3. Test clips + quality calibration | `.\scripts\blackwell\Calibrate-NVENC.ps1` | 1-3 h |
-| 4. Video matrix, NVENC vs software | `.\scripts\blackwell\Verify-Video.ps1` | 1-2 h |
-| 5. Regression | `.\scripts\blackwell\Verify-Phase3.ps1 -Mode gpu -Image snapotter-local:cu134-nvenc`, then `-Mode smoke` | 30 min |
+| 3. AI matrix on the candidate | `.\scripts\blackwell\Verify-Phase3.ps1 -Mode gpu -Image snapotter-local:cu134-next` | 10 min |
+| 4. Smoke + security probes | `.\scripts\blackwell\Verify-Phase3.ps1 -Mode smoke -Image snapotter-local:cu134-next` | 1 min |
+| 5. Video matrix (when FFmpeg or encoders.ts changed) | `.\scripts\blackwell\Verify-Video.ps1 -Image snapotter-local:cu134-next` | 1-2 h |
+| 6. Promote | `.\scripts\blackwell\Promote-Image.ps1` | 2 min |
+| Rollback, if needed | `.\scripts\blackwell\Promote-Image.ps1 -Rollback` | 2 min |
 
-`Build-Image.ps1` downloads the FFmpeg tarball into `snapotter-build\sources`
-with retries (ffmpeg.org is intermittently unreachable from this network) and
-passes it to the build; the SHA-256 is checked either way. Outputs land in
-`snapotter-build\phase3\ffmpeg`, `...\calibration` and `...\video`.
-
-Known limit: GeForce cards allow 8 concurrent NVENC sessions. `CONCURRENT_JOBS=3`
-gives the media pool one job, so it is never reached; keep `CONCURRENT_JOBS`
-at 17 or below.
+Steps 3-5 run the stack on the candidate; step 6 (or a rollback) puts it back
+on the release. Recalibrate NVENC (`.\scripts\blackwell\Calibrate-NVENC.ps1`,
+1-3 h) only after an FFmpeg, driver or GPU change. `Build-Image.ps1` downloads
+the FFmpeg tarball into `snapotter-build\sources` with retries (ffmpeg.org is
+intermittently unreachable from this network) and checks its SHA-256. Outputs
+land in `snapotter-build\phase3\`.
 
 ## Upstream drift
 
-The fork's changes are confined to `docker/Dockerfile`,
+`main` on the fork carries the fork's changes: `docker/Dockerfile`,
 `docker/feature-manifest.json`, `apps/api/src/routes/features.ts`
-(`ocrBundleRepo`), the three security fixes, and this folder. To take an
-upstream release: `git fetch upstream; git rebase upstream/main` on
-`blackwell-cuda13`, resolve those files, then run Phase 2 again only if the
-upstream release touched the AI bundles (`feature-manifest.json` packages)
-or the Dockerfile base.
+(`ocrBundleRepo`), the three security fixes, the NVENC changes in
+`packages/media-engine/src/encoders.ts` and `ffmpeg.ts`, and this folder. To
+take an upstream release, run in the repo:
+
+```powershell
+if (-not (git remote | Select-String -Quiet '^upstream$')) { git remote add upstream https://github.com/snapotter-hq/snapotter.git }
+git fetch upstream
+git checkout -b upstream-sync main
+git merge upstream/main
+```
+
+Resolve conflicts in those files, run the unit tests, then follow "Image tags
+and upgrades". Rebuild the AI bundles (Phase 2 at the top) only if the
+upstream release changed a bundle's packages in `feature-manifest.json` or the
+Dockerfile base.
