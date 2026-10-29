@@ -47,6 +47,29 @@ function ffmpegSpawnFailure(
 }
 
 /**
+ * Fork (Blackwell phase 2): whether this ffmpeg run opens the NVIDIA driver
+ * (an NVENC encoder, a CUVID decoder or `-hwaccel cuda`). cuInit reserves far
+ * more virtual address space than it touches, so under the RLIMIT_AS shim
+ * (SUBPROCESS_MEMORY_LIMIT_MB) it fails with CUDA_ERROR_OUT_OF_MEMORY and the
+ * job dies. Such runs skip the shim, as the AI sidecar already does (see
+ * subprocess-limit.ts), and stay bounded by the container memory limit.
+ */
+export function usesCudaDevice(args: readonly string[]): boolean {
+  for (let i = 0; i < args.length - 1; i++) {
+    const flag = args[i];
+    const value = args[i + 1];
+    if (
+      (flag === "-c:v" || flag === "-vcodec" || flag === "-codec:v") &&
+      /_(nvenc|cuvid)$/.test(value)
+    ) {
+      return true;
+    }
+    if ((flag === "-hwaccel" || flag === "-init_hw_device") && /^cuda/.test(value)) return true;
+  }
+  return false;
+}
+
+/**
  * Runs ffmpeg with `-progress pipe:1` appended, parsing progress blocks from
  * stdout. Rejects with the tail of stderr on non-zero exit, timeout or abort.
  * Resolves with the captured stderr tail (filters like silencedetect report
@@ -57,14 +80,17 @@ export async function runFfmpeg(args: string[], opts: RunFfmpegOptions = {}): Pr
   const bin = resolveFfmpeg();
   if (!bin) throw new Error("ffmpeg binary not found (set FFMPEG_PATH or install ffmpeg)");
   return new Promise<string>((resolvePromise, reject) => {
-    const [limBin, limArgs] = wrapWithMemoryLimit(bin, [
+    const fullArgs = [
       "-hide_banner",
       "-nostdin",
       "-y",
       ...withInputProtocolWhitelist(args),
       "-progress",
       "pipe:1",
-    ]);
+    ];
+    const [limBin, limArgs] = usesCudaDevice(args)
+      ? [bin, fullArgs]
+      : wrapWithMemoryLimit(bin, fullArgs);
     const child = spawn(limBin, limArgs, {
       stdio: ["ignore", "pipe", "pipe"],
     });
