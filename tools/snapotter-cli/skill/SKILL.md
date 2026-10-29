@@ -17,15 +17,20 @@ and gives Craig consistent results.
   `C:\Users\cfish\.local\bin\snapotter.cmd` (on PATH). From Git Bash call it as
   `snapotter.cmd`.
 - **A cloud session linked to the Raider:** run the commands through the
-  Raider's shell tool, which is Windows PowerShell 5.1. Wrap every call so
-  PowerShell doesn't turn stderr into `NativeCommandError` noise, and read
-  the exit code straight after:
+  Raider's shell tool, which is Windows PowerShell 5.1. Each call is a fresh
+  shell, so start it with `Set-Location` to the files' folder (or use
+  absolute paths). Wrap every snapotter call so PowerShell doesn't turn
+  stderr into `NativeCommandError` noise, and read the exit code after it;
+  quotes inside the wrapper are doubled:
 
-      cmd /c "snapotter run compress-video clip.mp4 --set quality=strong --json --quiet 2>&1"; "exit=$LASTEXITCODE"
+      Set-Location C:\Users\cfish\Pictures; cmd /c "snapotter tools --search ""remove background"" --json 2>&1"; "exit=$LASTEXITCODE"
 
   Input files must be on the Raider: copy any cloud-side file to a Raider
   folder first, and bring the result back only if you need to look at it.
 - **No Raider link:** SnapOtter is unavailable; say so rather than improvising.
+
+The examples below show the bare command; in a cloud session, wrap each one
+as above.
 
 ## How to use it
 
@@ -40,12 +45,12 @@ and gives Craig consistent results.
    - Generators that take no file (e.g. `qr-generate`) need `--out <file>`.
    - `pipeline steps.json <input>` chains image tools on one file.
 4. **Check the result, then report.** Each job prints one JSON line on stdout:
-   `ok`, `output`, `bytes`, `jobId`, `result`, `seconds` (server time; wall
-   time is a little longer). `--batch` also prints `snapotter: batch: N/M OK`
-   on stderr. Report the `output` path and any `result` fields that matter:
-   `degraded` and `warnings` always; OCR `actualQuality` and `pages`;
-   transcription `language`. For OCR and transcription, read the output
-   `.txt` and show the text.
+   `ok`, `output`, `bytes`, `inputBytes`, `sizeRatio`, `jobId`, `result`,
+   `seconds`, and `warning` when the CLI spots a problem. With `2>&1`,
+   `--batch` adds a `snapotter: batch: N/M OK` line. Report the `output` path
+   and what matters from `result`: `degraded` and `warnings` always; OCR
+   `actualQuality` and `pages`; transcription `language`. Ignore `maskUrl`.
+   For OCR and transcription, read the output `.txt` and show the text.
 
 ## Outputs
 
@@ -59,33 +64,35 @@ and gives Craig consistent results.
 
 ## Choosing settings
 
-- **"Compress strongly":** `quality=strong`. If the result is still too big,
-  add `resolution=720p` or `480p` and say you did. A clip already under about
-  300 kbps won't shrink much; tell the user rather than pushing quality down.
-- **OCR (`ocr` for images, `ocr-pdf` for PDFs):** leave `quality` out or set
-  `fast`; never request `balanced` or `best` (see Limits). Set `language`
-  when known (auto, en, de, fr, es, zh, ja, ko; Korean needs an accurate tier,
-  so it fails here). `pages` takes `1-3` or `1,3,5`; at most 50 pages per run,
-  so split longer PDFs.
-- **Background removal:** the default model suits people and products; use
-  `model=birefnet-portrait` for portraits, `birefnet-hr-matting` for hair or
-  fur. Photos without a clear subject (landscapes, scenes) come back almost
-  fully transparent while still reporting `ok`: look at those results, or
-  warn the user, before calling them done.
+- **"Compress strongly":** `quality=strong`. If `sizeRatio` comes back above
+  0.75 the clip was already lean: tell the user and offer `resolution=720p`
+  (or `480p`), the next real saving. Don't lower the resolution unasked.
+- **OCR (`ocr` for images, `ocr-pdf` for PDFs):** always `--set quality=fast`
+  (see Limits; leaving it out makes the server try the unavailable tiers
+  first). Set `language` when known (auto, en, de, fr, es, zh, ja, ko; Korean
+  fails here). `pages` takes `1-3` or `1,3,5`; at most 50 pages per run, so
+  split longer PDFs.
+- **Background removal:** use the default model. A photo with no clear subject
+  (landscape, scene) comes back almost fully transparent while still `ok`; the
+  CLI then sets `warning` and `transparentPct` (95 or more). Tell the user that
+  photo couldn't be cut out rather than reporting it done. Image viewers can
+  show colour in transparent pixels, so trust `transparentPct` over a look.
 
 ## Long jobs from a cloud session
 
-The Raider shell call times out after about 60 s. From a cloud session,
-always detach video jobs, PDFs over about 20 pages, and batches of more than
-8 files; anything else runs inline (images take about 4 s each, a 30 s
-480p clip about 2 s).
+The Raider shell call times out after about 60 s. Judge by file size
+(`(Get-Item <file>).Length`): detach videos over 20 MB, audio over 20 MB,
+PDFs over 10 MB, and image batches of more than 4 files (each image takes
+4-11 s; HEIC and WebP are the slow ones). Smaller jobs run inline.
 
-    snapotter run compress-video big.mp4 --set quality=strong --detach --json --quiet
-    snapotter wait <jobId> --timeout 45 --out <folder of the input> --json --quiet
+    snapotter run compress-video C:\Users\cfish\Videos\trip.mp4 --set quality=strong --detach --json --quiet
+    snapotter wait <jobId from that line> --timeout 45 --out C:\Users\cfish\Videos --json --quiet
 
-`wait` exits 6 when the job is still running at the timeout: call it again,
-then report once it exits 0. `--detach --batch` prints one job id per file;
-wait on each. On the Raider itself, plain `run` is fine.
+Always give `wait` an absolute `--out` (the input's folder): it does not know
+where the input was. `wait` exits 6 when the job is still running at the
+timeout: call it again, and report once it exits 0. `--detach --batch`
+prints one job id per file; wait on each. On the Raider itself, plain `run`
+is fine.
 
 ## Exit codes
 
@@ -103,6 +110,8 @@ and needs his go-ahead.
 
 - **OCR:** only the fast (Tesseract) tier works on this build; the accurate
   tiers report `unsupported-host`. Expect garbled text on photos of screens.
+- **Transcription** may misspell names and brands ("snap Otter"); fix obvious
+  ones when showing the text and say you did.
 - **NVENC:** the GPU allows 8 encode sessions and the stack runs one media
   job at a time, so big video batches queue.
 - **Screen recordings:** NVENC output is about 1.7x larger than the software
