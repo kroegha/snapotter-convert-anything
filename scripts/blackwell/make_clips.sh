@@ -2,7 +2,7 @@
 # Phase 2 test clips (PRD section 9). Runs in the NVENC image with the GPU.
 # There is no representative sample clip, so the clips are built from the
 # repo's real footage: stress-large.jpg is a 4000x3000 Galaxy S24 Ultra photo
-# (real sensor detail and noise), panned like a handheld shot; media-30s.mp4 is
+# (real sensor detail and noise; EXIF-rotated to portrait), panned like a handheld shot; media-30s.mp4 is
 # Big Buck Bunny (real motion), upscaled with temporal grain added. Sources are
 # encoded at the bitrates phones and screen recorders use (HEVC 1080p ~16 Mb/s,
 # HEVC 4K30 ~40 Mb/s, H.264 1440p60 ~12 Mb/s), so the long clips stay under
@@ -25,7 +25,7 @@ base() { # w h secs out bitrate maxrate
   w=$1; h=$2; s=$3; out=$4; enc=$(hevc10 "$5" "$6")
   $FF -loop 1 -framerate 30 -t "$s" -i "$PHOTO" -t "$s" -i "$BBB" -stream_loop -1 -t $((s*2)) -i "$BBB" \
     -filter_complex "\
-[0:v]scale=-2:$((h*16/10)):flags=lanczos,crop=$w:$h:x='(iw-ow)*t/$s':y='(ih-oh)/2+(ih-oh)/4*sin(t*0.9)',setsar=1,fps=30,format=yuv420p[a];\
+[0:v]scale=$((w*12/10)):$((h*16/10)):force_original_aspect_ratio=increase:flags=lanczos,crop=$w:$h:x='(iw-ow)*t/$s':y='(ih-oh)/2+(ih-oh)/4*sin(t*0.9)',setsar=1,fps=30,format=yuv420p[a];\
 [1:v]scale=$w:$h:force_original_aspect_ratio=increase:flags=lanczos,crop=$w:$h,setsar=1,fps=30,format=yuv420p[b];\
 [a][b]concat=n=2:v=1:a=0,noise=alls=7:allf=t,format=p010le[v]" \
     -map "[v]" -map 2:a $enc -c:a aac -b:a 160k -movflags +faststart "$out"
