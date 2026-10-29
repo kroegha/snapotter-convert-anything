@@ -122,7 +122,10 @@ def setup(base, env_path):
     env = read_env(env_path)
     data = login(base, "craig", env["SNAPOTTER_ADMIN_PASSWORD"])
     token = data["token"]
-    new = secrets.token_hex(24)
+    # Default policy: upper, lower, digit and special. token_urlsafe gives
+    # letters, digits, "-" and "_"; the suffix guarantees each class. No "$",
+    # which compose would treat as interpolation in .env.
+    new = secrets.token_urlsafe(24) + "Aa9-"
     r = requests.post(base + "/api/auth/change-password", headers={"Authorization": f"Bearer {token}"},
                       json={"currentPassword": env["SNAPOTTER_ADMIN_PASSWORD"], "newPassword": new}, timeout=30)
     if r.status_code >= 400:
