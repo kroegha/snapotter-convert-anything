@@ -108,3 +108,4 @@ run-ai-*.py
 # weasyprint/PyMuPDF-gated suites locally. No trailing slash: it is usually a
 # symlink to a venv elsewhere, which a directory-only pattern would miss.
 .venv
+spike/blackwell/out/
