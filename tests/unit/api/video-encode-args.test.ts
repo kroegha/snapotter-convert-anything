@@ -66,7 +66,7 @@ describe("videoEncodeArgsForContainer", () => {
       "-rc",
       "vbr",
       "-cq",
-      "20",
+      "26",
       "-b:v",
       "0",
       "-preset",

@@ -348,6 +348,47 @@ export type RateControlledTarget = "h264" | "hevc";
 const RATE_CONTROLLED: RateControlledTarget[] = ["h264", "hevc"];
 
 /**
+ * Fork (Blackwell phase 2): h264_nvenc's CQ is biased above the x264 CRF it
+ * stands in for. Calibrated on an RTX 5090 (driver 617, Video Codec SDK 13.1)
+ * by VMAF against libx264 -preset medium on 1080x1920 phone and 3840x2160
+ * camera footage: at each point NVENC's worst clip lands within 0.5 VMAF of
+ * software, with files 7-46% smaller. Without the bias the same number gave
+ * ~3 VMAF more and files up to 4x larger. Points are [crf, offset] for the
+ * CRFs the tools use (18 20 23 28 33); other CRFs interpolate linearly and
+ * clamp at the ends. See scripts/blackwell/calibrate_nvenc.py.
+ * Screen recordings are not part of the fit: libx264 compresses flat synthetic
+ * content far better, so at these offsets they come out 1.25-1.6x larger than
+ * software, at higher quality. hevc_nvenc keeps the 1:1 mapping: no tool
+ * outputs HEVC yet.
+ */
+const H264_NVENC_CQ_OFFSET: ReadonlyArray<readonly [crf: number, offset: number]> = [
+  [18, 6],
+  [20, 6],
+  [23, 5],
+  [28, 5],
+  [33, 4],
+];
+
+/** h264_nvenc's CQ for an x264-style CRF, per the calibration above. */
+export function h264NvencCq(crf: number): number {
+  const points = H264_NVENC_CQ_OFFSET;
+  let offset = points[points.length - 1][1];
+  if (crf <= points[0][0]) {
+    offset = points[0][1];
+  } else {
+    for (let i = 1; i < points.length; i++) {
+      const [c1, o1] = points[i];
+      if (crf <= c1) {
+        const [c0, o0] = points[i - 1];
+        offset = o0 + ((o1 - o0) * (crf - c0)) / (c1 - c0);
+        break;
+      }
+    }
+  }
+  return Math.min(51, Math.max(1, Math.round(crf + offset)));
+}
+
+/**
  * Rate control and speed preset for a resolved h264 or hevc encoder, given
  * the quality as an x264-style CRF (an integer, lower is better, 0..51).
  *
@@ -359,7 +400,8 @@ const RATE_CONTROLLED: RateControlledTarget[] = ["h264", "hevc"];
  * family gets its own dialect here, so a call site never pairs an encoder
  * with another encoder's flags.
  *
- * The number maps 1:1 across families: CRF, NVENC's cq and VAAPI's qp all sit
+ * The number maps 1:1 across families (fork: except h264_nvenc, biased by
+ * H264_NVENC_CQ_OFFSET above): CRF, NVENC's cq and VAAPI's qp all sit
  * on the same quantiser scale, so the same value asks each encoder for roughly
  * the same quantisation. How much picture that buys differs per encoder, and
  * this is the one place to bias it if a host with the hardware shows a
@@ -383,13 +425,52 @@ export function rateControlArgs(encoder: string, crf: number): string[] {
   switch (family) {
     case "software":
       return ["-crf", String(crf), "-preset", "medium"];
-    case "nvenc":
-      return ["-rc", "vbr", "-cq", hardwareQuality, "-b:v", "0", "-preset", "p5"];
+    case "nvenc": {
+      const cq = encoder === NVENC.h264 ? String(h264NvencCq(crf)) : hardwareQuality;
+      return ["-rc", "vbr", "-cq", cq, "-b:v", "0", "-preset", "p5"];
+    }
     case "vaapi":
       return ["-rc_mode", "CQP", "-qp", hardwareQuality];
     default:
       throw new Error(`No rate-control table for encoder ${encoder}`);
   }
+}
+
+/**
+ * Fork (Blackwell phase 2): the software equivalent of an NVENC command line
+ * built by videoCodecArgs, for a retry when the NVENC encode itself fails at
+ * run time (frames below NVENC's minimum size, e.g. a 100x100 GIF where
+ * h264_nvenc needs 145 px; an exhausted session; a driver fault). Swaps the
+ * `-c:v <nvenc> -rc vbr -cq N -b:v 0 -preset p5` run for the software encoder
+ * at the CRF that produced N. Null when the arguments were not built that way.
+ */
+export function softwareFallbackArgs(args: readonly string[]): string[] | null {
+  const at = args.indexOf("-c:v");
+  if (at === -1) return null;
+  const encoder = args[at + 1];
+  const target = RATE_CONTROLLED.find((t) => NVENC[t] === encoder);
+  if (!target) return null;
+  const expected = ["-rc", "vbr", "-cq", undefined, "-b:v", "0", "-preset", "p5"];
+  const run = args.slice(at + 2, at + 2 + expected.length);
+  if (run.length !== expected.length || expected.some((v, i) => v !== undefined && run[i] !== v))
+    return null;
+  const cq = Number.parseInt(run[3], 10);
+  if (!Number.isInteger(cq)) return null;
+  let crf = cq;
+  if (target === "h264") {
+    // Invert the calibration: the CRF whose cq is closest to (preferably equal) this one.
+    crf = 0;
+    for (let c = 0; c <= 51; c++) {
+      if (Math.abs(h264NvencCq(c) - cq) < Math.abs(h264NvencCq(crf) - cq)) crf = c;
+    }
+  }
+  return [
+    ...args.slice(0, at),
+    "-c:v",
+    SOFTWARE[target],
+    ...rateControlArgs(SOFTWARE[target], Math.min(51, Math.max(0, crf))),
+    ...args.slice(at + 2 + expected.length),
+  ];
 }
 
 /** Which of the encoder maps above `encoder` came from, for a rate-controlled target. */

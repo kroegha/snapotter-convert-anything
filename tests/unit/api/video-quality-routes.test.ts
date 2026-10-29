@@ -157,7 +157,8 @@ describe("compress-video quality on an NVENC host", () => {
       expect(args).not.toContain("-crf");
       seen.push(flagValue(args, "-cq") ?? "missing");
     }
-    expect(seen).toEqual(["23", "28", "33"]);
+    // Fork: h264_nvenc cq is calibrated above the crf (H264_NVENC_CQ_OFFSET).
+    expect(seen).toEqual(["28", "33", "37"]);
   });
 });
 
@@ -180,7 +181,7 @@ describe("convert-video quality on an NVENC host", () => {
   });
 
   for (const format of ["mp4", "mov", "mkv", "avi"]) {
-    it(`${format}: maps high/balanced/small to cq 18/23/28`, async () => {
+    it(`${format}: maps high/balanced/small to the calibrated cq 24/28/33`, async () => {
       const seen: string[] = [];
       for (const quality of ["high", "balanced", "small"]) {
         const args = await argsFor(registerConvertVideo, "convert-video", { format, quality });
@@ -188,7 +189,7 @@ describe("convert-video quality on an NVENC host", () => {
         expect(args).not.toContain("-crf");
         seen.push(flagValue(args, "-cq") ?? "missing");
       }
-      expect(seen).toEqual(["18", "23", "28"]);
+      expect(seen).toEqual(["24", "28", "33"]);
     });
   }
 

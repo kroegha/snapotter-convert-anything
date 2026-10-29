@@ -73,6 +73,32 @@ Pass criteria (PRD §3):
 4. `report.md` timing table: GPU against the CPU path on the same image.
 5. Non-AI smoke test: image convert, video compress, PDF merge, OCR.
 
+## Phase 2 — NVENC hardware video encoding
+
+The amd64 image builds FFmpeg 8.1.3 from the official release (SHA-256 pinned,
+signed by the FFmpeg release key) against NVIDIA's Video Codec SDK 13.1
+headers and Ubuntu 24.04's libraries. `compose.raider.yaml` asks for the
+`video` driver capability and defaults `SNAPOTTER_HW_ACCEL` to `nvenc`, so
+every tool that outputs H.264 encodes on the 5090. Set `SNAPOTTER_HW_ACCEL=`
+(empty) in `.env` to force software.
+
+| Step | Command | Time |
+|---|---|---|
+| 1. Image | `.\scripts\blackwell\Build-Image.ps1 -Image snapotter-local:cu134-nvenc` | 20-40 min |
+| 2. FFmpeg parity + NVENC probe | `.\scripts\blackwell\Check-FFmpeg.ps1` | 1 min |
+| 3. Test clips + quality calibration | `.\scripts\blackwell\Calibrate-NVENC.ps1` | 1-3 h |
+| 4. Video matrix, NVENC vs software | `.\scripts\blackwell\Verify-Video.ps1` | 1-2 h |
+| 5. Regression | `.\scripts\blackwell\Verify-Phase3.ps1 -Mode gpu -Image snapotter-local:cu134-nvenc`, then `-Mode smoke` | 30 min |
+
+`Build-Image.ps1` downloads the FFmpeg tarball into `snapotter-build\sources`
+with retries (ffmpeg.org is intermittently unreachable from this network) and
+passes it to the build; the SHA-256 is checked either way. Outputs land in
+`snapotter-build\phase3\ffmpeg`, `...\calibration` and `...\video`.
+
+Known limit: GeForce cards allow 8 concurrent NVENC sessions. `CONCURRENT_JOBS=3`
+gives the media pool one job, so it is never reached; keep `CONCURRENT_JOBS`
+at 17 or below.
+
 ## Upstream drift
 
 The fork's changes are confined to `docker/Dockerfile`,

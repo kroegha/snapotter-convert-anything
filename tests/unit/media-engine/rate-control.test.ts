@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  h264NvencCq,
   isVaapiEncoder,
   rateControlArgs,
   setEncoderInventoryForTests,
@@ -63,12 +64,13 @@ describe("rateControlArgs: software", () => {
 });
 
 describe("rateControlArgs: NVENC", () => {
-  it("uses constant-quality VBR and a p-preset for h264_nvenc", () => {
+  it("uses constant-quality VBR and a p-preset for h264_nvenc, at the calibrated cq", () => {
+    // Fork: crf 20 maps to cq 26 (H264_NVENC_CQ_OFFSET).
     expect(rateControlArgs("h264_nvenc", 20)).toEqual([
       "-rc",
       "vbr",
       "-cq",
-      "20",
+      "26",
       "-b:v",
       "0",
       "-preset",
@@ -91,7 +93,7 @@ describe("rateControlArgs: NVENC", () => {
 
   it("never lets crf 0 turn into NVENC's 'automatic' cq", () => {
     // -cq 0 means "let the driver pick", which is the very bug this replaces.
-    expect(rateControlArgs("h264_nvenc", 0)).toEqual([
+    expect(rateControlArgs("hevc_nvenc", 0)).toEqual([
       "-rc",
       "vbr",
       "-cq",
@@ -101,6 +103,29 @@ describe("rateControlArgs: NVENC", () => {
       "-preset",
       "p5",
     ]);
+  });
+});
+
+describe("h264NvencCq (fork calibration)", () => {
+  it("maps every CRF the tools use to its calibrated cq", () => {
+    expect([18, 20, 23, 28, 33].map(h264NvencCq)).toEqual([24, 26, 28, 33, 37]);
+  });
+
+  it("interpolates between calibration points and clamps outside them", () => {
+    expect(h264NvencCq(21)).toBe(27); // offset 6 -> 5 between 20 and 23: 5.67, rounds to 27
+    expect(h264NvencCq(30)).toBe(35); // offset 5 -> 4 between 28 and 33: 4.6, rounds to 35
+    expect(h264NvencCq(0)).toBe(6);
+    expect(h264NvencCq(51)).toBe(51);
+  });
+
+  it("is strictly increasing over the tools' CRFs, so quality levels stay distinct", () => {
+    const cqs = [18, 20, 23, 28, 33].map(h264NvencCq);
+    for (let i = 1; i < cqs.length; i++) expect(cqs[i]).toBeGreaterThan(cqs[i - 1]);
+  });
+
+  it("leaves hevc_nvenc on the 1:1 mapping", () => {
+    expect(rateControlArgs("hevc_nvenc", 23)).toContain("23");
+    expect(rateControlArgs("h264_nvenc", 0)).toEqual(["-rc", "vbr", "-cq", "6", "-b:v", "0", "-preset", "p5"]);
   });
 });
 
@@ -182,7 +207,7 @@ describe("videoCodecArgs", () => {
       "-rc",
       "vbr",
       "-cq",
-      "20",
+      "26",
       "-b:v",
       "0",
       "-preset",

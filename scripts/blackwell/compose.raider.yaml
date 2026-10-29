@@ -16,6 +16,11 @@
 #    the Hugging Face token is mounted read-only as a secret (HF_TOKEN_PATH),
 #    never put in an environment variable.
 #  - Memory sized for a 24 GB WSL2 VM (.wslconfig memory=24GB).
+#  - H.264 encodes on NVENC (phase 2): the image's FFmpeg is the fork's NVENC
+#    build, the `video` driver capability mounts the encoder library, and
+#    SNAPOTTER_HW_ACCEL defaults to nvenc. Set SNAPOTTER_HW_ACCEL= (empty) in
+#    .env to force software. CONCURRENT_JOBS=3 keeps the media pool at one job,
+#    far under GeForce's 8 concurrent NVENC sessions.
 #
 # Secrets come from .env next to this file (see scripts/blackwell/README.md).
 
@@ -23,7 +28,7 @@ name: snapotter
 
 services:
   snapotter:
-    image: snapotter-local:cu134
+    image: ${SNAPOTTER_IMAGE:-snapotter-local:cu134}
     container_name: snapotter
     ports:
       - "127.0.0.1:1349:1349"
@@ -39,6 +44,9 @@ services:
       HF_TOKEN_PATH: /run/secrets/hf_token
       # Verify-Phase3.ps1 -Mode cpu sets 0 to time the CPU path on the same image.
       SNAPOTTER_GPU: ${SNAPOTTER_GPU:-auto}
+      # Unset means nvenc; an explicit empty value means software encoding.
+      SNAPOTTER_HW_ACCEL: ${SNAPOTTER_HW_ACCEL-nvenc}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
       SNAPOTTER_ALLOW_MODEL_DOWNLOAD: "0"
       TRUST_PROXY: loopback
       SESSION_DURATION_HOURS: "24"
@@ -49,6 +57,9 @@ services:
       SUBPROCESS_MEMORY_LIMIT_MB: "10240"
       CONCURRENT_JOBS: "3"
       FILE_MAX_AGE_HOURS: "24"
+      # Phase 2: long 4K clips are ~3 GB each and results count against this cap
+      # until they expire; the upstream default of 10 GB fills after a few.
+      MAX_WORKSPACE_SIZE_GB: "100"
       DATABASE_URL: postgres://snapotter_app:${POSTGRES_APP_PASSWORD}@postgres:5432/snapotter
       DATABASE_MIGRATION_URL: postgres://snapotter:${POSTGRES_PASSWORD}@postgres:5432/snapotter
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379

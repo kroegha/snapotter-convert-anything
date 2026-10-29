@@ -44,7 +44,9 @@ describe("Dockerfile build args", () => {
       const externalBases = source
         .split(/\r?\n/)
         .filter((line) => /^FROM\s+/.test(line))
-        .filter((line) => !/^FROM\s+(?:libheif-base-|base-|ctranslate2-builder-)\$\{/.test(line));
+        .filter((line) => !/^FROM\s+(?:libheif-base-|base-|ctranslate2-builder-|ffmpeg-)\$\{/.test(line))
+        // An empty stage that a --build-context replaces; scratch has no digest.
+        .filter((line) => !/^FROM\s+scratch\s+AS\s+\S+$/.test(line));
 
       expect(externalBases.length, `${name} should contain external bases`).toBeGreaterThan(0);
       for (const base of externalBases) {

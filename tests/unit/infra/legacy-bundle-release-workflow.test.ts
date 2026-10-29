@@ -30,8 +30,10 @@ describe("legacy bundle release workflow", () => {
       [string, { runtimeFormatVersion?: number; archives?: Record<string, { file: string }> }]
     >) {
       if (bundleId === "ocr" || bundle.runtimeFormatVersion === 3) continue;
-      for (const archive of Object.values(bundle.archives ?? {})) {
-        expect(archive.file).toMatch(/^v2\.0\.0\//);
+      for (const [variant, archive] of Object.entries(bundle.archives ?? {})) {
+        // Fork: the amd64-gpu bundles were rebuilt for CUDA 13.4 under their
+        // own immutable prefix in kroegha/snapotter-bundles-cu134.
+        expect(archive.file).toMatch(variant === "amd64-gpu" ? /^cu134-v1\// : /^v2\.0\.0\//);
       }
     }
   });

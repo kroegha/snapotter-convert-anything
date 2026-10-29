@@ -15,7 +15,7 @@ export {
   videoCodecArgs,
   withVaapiEncodeArgs,
 } from "./encoders.js";
-export { type RunFfmpegOptions, runFfmpeg } from "./ffmpeg.js";
+export { type RunFfmpegOptions, runFfmpeg, usesCudaDevice } from "./ffmpeg.js";
 export {
   INPUT_PROTOCOL_WHITELIST,
   REFERENCE_CONTAINER_RE,
