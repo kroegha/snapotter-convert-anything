@@ -50,7 +50,7 @@ def run(cmd):
 def frame_rate(src):
     r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
                         "-of", "csv=p=0", src], capture_output=True, text=True)
-    num, den = r.stdout.strip().split("/")
+    num, den = r.stdout.strip().strip(",").split("/")
     return float(num) / float(den)
 
 
