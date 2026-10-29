@@ -1,0 +1,41 @@
+<#
+.SYNOPSIS
+  Build the fork's CUDA 13.4 SnapOtter image on the Raider.
+.DESCRIPTION
+  Run from anywhere; paths resolve from this script. Tags snapotter-local:cu134.
+  First build pulls the 13.4 runtime + devel bases and compiles CTranslate2
+  (~45-75 min); rebuilds after a manifest change reuse the cache.
+  Log: <repo>\..\snapotter-build\logs\image-<timestamp>.log
+#>
+param(
+  [string]$Image = "snapotter-local:cu134",
+  [int]$Ct2Jobs = 12
+)
+$ErrorActionPreference = "Stop"
+$Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$Build = Join-Path (Split-Path $Repo -Parent) "snapotter-build"
+$Logs = Join-Path $Build "logs"
+New-Item -ItemType Directory -Force $Logs | Out-Null
+$Log = Join-Path $Logs ("image-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
+
+Write-Host "Building $Image from $Repo (log: $Log)"
+$env:DOCKER_BUILDKIT = "1"
+& docker build `
+  --platform linux/amd64 `
+  --file (Join-Path $Repo "docker\Dockerfile") `
+  --build-arg SNAPOTTER_ANALYTICS=off `
+  --build-arg CT2_JOBS=$Ct2Jobs `
+  --progress plain `
+  --tag $Image `
+  $Repo *>&1 | Tee-Object -FilePath $Log
+if ($LASTEXITCODE -ne 0) { throw "docker build failed ($LASTEXITCODE); see $Log" }
+
+Write-Host "== Verifying the image"
+& docker run --rm --entrypoint bash $Image -c @'
+set -e
+ls /opt/snapotter-wheels/ctranslate2-*.whl
+python3 -c "import json; m=json.load(open('/app/docker/feature-manifest.json')); print('bundleRepo', m['bundleRepo'], '| ocrBundleRepo', m['ocrBundleRepo'])"
+convert -list policy | grep -q "MVG,MSL,TEXT,TXT" && echo "ImageMagick policy hardened"
+'@ *>&1 | Tee-Object -FilePath $Log -Append
+if ($LASTEXITCODE -ne 0) { throw "image verification failed; see $Log" }
+Write-Host "IMAGE BUILD OK: $Image"
