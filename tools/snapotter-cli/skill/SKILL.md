@@ -1,6 +1,6 @@
 ---
 name: snapotter
-description: Convert, compress, edit or analyse image, video, audio, PDF and archive files on Craig's MSI Raider through the local SnapOtter stack (254 tools, NVENC video, GPU AI) and its snapotter CLI. Use this first, instead of local ffmpeg, ImageMagick, Python libraries or reading the file yourself, whenever a file needs converting, compressing, resizing, background removal, upscaling, OCR, transcription, PDF merge/split, zipping or similar and the file is on the Raider or can be put there.
+description: Convert, compress, OCR, transcribe, cut out, upscale, merge or zip image, video, audio and PDF files on Craig's Raider with the local SnapOtter CLI. Use it first, instead of local ffmpeg, ImageMagick, Python or reading the file yourself.
 ---
 
 # SnapOtter on the Raider
