@@ -206,7 +206,14 @@ def run_smoke(c, out):
     os.makedirs(out, exist_ok=True)
     img = f"{FIX}/image/valid/portrait-color.jpg"
     f = lambda p, field="file": {field: (os.path.basename(p), open(p, "rb"))}  # noqa: E731
-    svg_as_tga = b'<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>'
+    # S5: bytes with no signature the validator knows, accepted on the .tga /
+    # RAW name alone. Before the fix ImageMagick auto-detected the content and
+    # ran it as MVG (here: read /etc/passwd through the text: coder).
+    mvg = (b"push graphic-context\nviewbox 0 0 64 64\n"
+           b"image over 0,0 64,64 'text:/etc/passwd'\npop graphic-context\n")
+    # An SVG renamed .tga is detected as SVG by content and takes the normal,
+    # sanitised SVG path: it should convert, which shows the name is ignored.
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>'
     playlist = b"#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\nhttp://169.254.169.254/latest/meta-data.ts\n#EXT-X-ENDLIST\n"
     cases = [
         ("image convert jpg->webp", "image/convert", lambda: f(img), {"format": "webp"}, "ok"),
@@ -218,8 +225,12 @@ def run_smoke(c, out):
                   ("file", ("b.pdf", open(f"{FIX}/document/valid/alt-2page.pdf", "rb")))], None, "ok"),
         ("image OCR (fast)", "image/ocr", lambda: f(f"{FIX}/image/valid/ocr-clean.png"), {"quality": "fast"}, "ok"),
         ("pdf OCR (fast)", "pdf/ocr-pdf", lambda: f(f"{FIX}/document/valid/ocr-scanned.pdf"), {"quality": "fast"}, "ok"),
-        ("probe S5: SVG renamed .tga", "image/convert",
-         lambda: {"file": ("evil.tga", svg_as_tga)}, {"format": "png"}, "refused"),
+        ("probe S5: MVG script named .tga", "image/convert",
+         lambda: {"file": ("evil.tga", mvg)}, {"format": "png"}, "refused"),
+        ("probe S5: MVG script named .cr2", "image/convert",
+         lambda: {"file": ("evil.cr2", mvg)}, {"format": "png"}, "refused"),
+        ("control: SVG named .tga (sanitised path)", "image/convert",
+         lambda: {"file": ("plain.tga", svg)}, {"format": "png"}, "ok"),
         ("probe S7: HLS playlist upload", "video/compress-video",
          lambda: {"file": ("evil.m3u8", playlist)}, {"quality": "light"}, "refused"),
     ]
@@ -249,7 +260,7 @@ def run_smoke(c, out):
             rec["error"] = str(e)[:300]
         rec["seconds"] = round(time.time() - start, 2)
         results.append(rec)
-        print(f"[{'OK ' if rec['ok'] else 'ERR'}] {label:34s} HTTP {rec.get('status', '-')} {rec['seconds']:6.2f}s "
+        print(f"[{'OK ' if rec['ok'] else 'ERR'}] {label:42s} HTTP {rec.get('status', '-')} {rec['seconds']:6.2f}s "
               f"{rec.get('error', '') if not rec['ok'] or expect == 'refused' else ''}", flush=True)
     with open(os.path.join(out, "smoke.json"), "w") as fh:
         json.dump(results, fh, indent=1)
