@@ -1,0 +1,145 @@
+# SnapOtter on the MSI Raider (Windows 11, Docker Desktop WSL2, RTX 5090)
+# Hardened local profile for the fork's CUDA 13.4 image (snapotter-local:cu134,
+# built by scripts/blackwell/Build-Image.ps1). Derived from
+# docker/docker-compose-gpu.yml.
+#
+# Differences from upstream defaults, and why:
+#  - Port bound to 127.0.0.1 only (upstream publishes on all interfaces).
+#  - Telemetry killed at runtime (published image ships PostHog + Sentry keys).
+#  - External Postgres/Redis with generated passwords (embedded mode uses
+#    Postgres trust auth, which defeats the app's least-privilege DB role).
+#  - Admin password from .env instead of admin/admin.
+#  - TRUST_PROXY=loopback (upstream trusts X-Forwarded-For from any private IP).
+#  - Non-zero resource limits so a bad file cannot eat the laptop.
+#  - Runtime model downloads stay off (unpinned URLs, one unsafe torch.load path).
+#  - AI bundles install from the private kroegha/snapotter-bundles-cu134 repo;
+#    the Hugging Face token is mounted read-only as a secret (HF_TOKEN_PATH),
+#    never put in an environment variable.
+#  - Memory sized for a 24 GB WSL2 VM (.wslconfig memory=24GB).
+#
+# Secrets come from .env next to this file (see scripts/blackwell/README.md).
+
+name: snapotter
+
+services:
+  snapotter:
+    image: snapotter-local:cu134
+    container_name: snapotter
+    ports:
+      - "127.0.0.1:1349:1349"
+    volumes:
+      - snapotter-data:/data
+      - snapotter-workspace:/tmp/workspace
+    environment:
+      AUTH_ENABLED: "true"
+      DEFAULT_USERNAME: craig
+      DEFAULT_PASSWORD: ${SNAPOTTER_ADMIN_PASSWORD}
+      SKIP_MUST_CHANGE_PASSWORD: "false"
+      SNAPOTTER_TELEMETRY: "0"
+      HF_TOKEN_PATH: /run/secrets/hf_token
+      # Verify-Phase3.ps1 -Mode cpu sets 0 to time the CPU path on the same image.
+      SNAPOTTER_GPU: ${SNAPOTTER_GPU:-auto}
+      SNAPOTTER_ALLOW_MODEL_DOWNLOAD: "0"
+      TRUST_PROXY: loopback
+      SESSION_DURATION_HOURS: "24"
+      MAX_UPLOAD_SIZE_MB: "4096"
+      MAX_MEGAPIXELS: "250"
+      MAX_PDF_PAGES: "5000"
+      PROCESSING_TIMEOUT_S: "3600"
+      SUBPROCESS_MEMORY_LIMIT_MB: "10240"
+      CONCURRENT_JOBS: "3"
+      FILE_MAX_AGE_HOURS: "24"
+      DATABASE_URL: postgres://snapotter_app:${POSTGRES_APP_PASSWORD}@postgres:5432/snapotter
+      DATABASE_MIGRATION_URL: postgres://snapotter:${POSTGRES_PASSWORD}@postgres:5432/snapotter
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    secrets: [hf_token]
+    mem_limit: 18g
+    memswap_limit: 18g
+    cpus: 16
+    pids_limit: 1024
+    shm_size: "4gb"
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER, KILL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "--max-time", "5", "http://localhost:1349/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "5" }
+
+  postgres:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    container_name: snapotter-postgres
+    environment:
+      POSTGRES_USER: snapotter
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: snapotter
+    volumes:
+      - snapotter-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snapotter -d snapotter"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  redis:
+    image: redis:8-alpine@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+    container_name: snapotter-redis
+    command: >-
+      redis-server --maxmemory-policy noeviction --maxmemory 512mb
+      --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - snapotter-redisdata:/data
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+secrets:
+  hf_token:
+    file: ${USERPROFILE}/.cache/huggingface/token
+
+volumes:
+  snapotter-data:
+  snapotter-workspace:
+  snapotter-pgdata:
+  snapotter-redisdata:

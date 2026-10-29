@@ -44,7 +44,7 @@ describe("Dockerfile build args", () => {
       const externalBases = source
         .split(/\r?\n/)
         .filter((line) => /^FROM\s+/.test(line))
-        .filter((line) => !/^FROM\s+(?:libheif-base-|base-)\$\{/.test(line));
+        .filter((line) => !/^FROM\s+(?:libheif-base-|base-|ctranslate2-builder-)\$\{/.test(line));
 
       expect(externalBases.length, `${name} should contain external bases`).toBeGreaterThan(0);
       for (const base of externalBases) {
@@ -198,14 +198,27 @@ describe("Dockerfile build args", () => {
     );
   });
 
-  it("keeps the amd64 CUDA base on the cu126 runtime family", () => {
+  it("keeps the amd64 CUDA base on the 13.4 runtime family (fork: native Blackwell)", () => {
     const baseLine = dockerfile
       .split(/\r?\n/)
       .find((line) => line.includes(" AS base-linux-amd64"));
 
-    expect(baseLine).toContain("nvidia/cuda:12.6.");
+    expect(baseLine).toContain("nvidia/cuda:13.4.");
     expect(baseLine).toContain("cudnn-runtime-ubuntu24.04");
-    expect(baseLine).not.toContain("nvidia/cuda:12.9.");
+    expect(baseLine).toMatch(/@sha256:[0-9a-f]{64} AS base-linux-amd64$/);
+  });
+
+  it("builds CTranslate2 against the same CUDA 13.4 toolkit with sm_120", () => {
+    const builder = stageBody("ctranslate2-builder-amd64");
+    const fromLine = dockerfile
+      .split(/\r?\n/)
+      .find((line) => line.includes(" AS ctranslate2-builder-amd64"));
+
+    expect(fromLine).toContain("nvidia/cuda:13.4.");
+    expect(fromLine).toContain("cudnn-devel-ubuntu24.04");
+    expect(builder).toContain("code=sm_120");
+    expect(builder).toContain("-DCUDA_DYNAMIC_LOADING=ON");
+    expect(stageBody("production")).toContain("COPY --from=ctranslate2-wheels /wheels/ /opt/snapotter-wheels/");
   });
 
   it("avoids secret-scanner build arg names for public PostHog browser config", () => {

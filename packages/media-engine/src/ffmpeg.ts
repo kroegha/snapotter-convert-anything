@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { markToolInputError, SafeError, wrapWithMemoryLimit } from "@snapotter/shared";
 import { resolveFfmpeg } from "./binaries.js";
+import { withInputProtocolWhitelist } from "./protocols.js";
 import { type FfmpegProgress, parseProgressBlock } from "./progress.js";
 
 export interface RunFfmpegOptions {
@@ -60,7 +61,7 @@ export async function runFfmpeg(args: string[], opts: RunFfmpegOptions = {}): Pr
       "-hide_banner",
       "-nostdin",
       "-y",
-      ...args,
+      ...withInputProtocolWhitelist(args),
       "-progress",
       "pipe:1",
     ]);

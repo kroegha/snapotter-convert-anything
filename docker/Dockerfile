@@ -116,12 +116,12 @@ COPY apps/web/src ./apps/web/src
 COPY apps/web/public ./apps/web/public
 
 # Bake analytics config into the shared package before building the frontend.
-# The published image ships with analytics ON; self-builders can override:
-#   docker compose build --build-arg SNAPOTTER_ANALYTICS=off
+# Fork default: analytics OFF (upstream's published image ships it ON). Opt in:
+#   docker compose build --build-arg SNAPOTTER_ANALYTICS=on
 # The real Sentry DSN + PostHog browser config are supplied as build args (public values,
 # sourced from CI secrets in the official build); a build without them stays
 # silent, so building from source never phones home.
-ARG SNAPOTTER_ANALYTICS=on
+ARG SNAPOTTER_ANALYTICS=off
 ARG SNAPOTTER_POSTHOG_PROJECT_ID=
 ARG SNAPOTTER_SENTRY_DSN=
 ARG SNAPOTTER_SENTRY_DSN_WEB=
@@ -319,12 +319,62 @@ RUN curl --fail --location --silent --show-error --retry 3 \
 # Pin tags to a stable upstream series; release digests provide artifact provenance.
 # ============================================
 FROM node:22-bookworm@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c32f3c7b4c4a31957e37 AS base-linux-arm64
-# CUDA base must match the remaining GPU AI bundles' torch/onnxruntime wheels
-# (cu126) and the libcublas-12-6 install below. It also sets the NVIDIA_REQUIRE_CUDA
-# driver gate enforced by nvidia-container-toolkit at container start: a 12.6 base
-# needs driver R560+, vs 12.9 which needs R575+ and fails to start on common
-# production drivers (e.g. 570.x / CUDA 12.8). Keep this at 12.6.x.
-FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04@sha256:8aef630a54bc5c5146ae5ce68e6af5caa3df0fb690bb91544175c91f307e4356 AS base-linux-amd64
+# Fork (blackwell-cuda13): CUDA 13.4 so every GPU runtime runs natively on
+# Blackwell (sm_120). The AI bundles pin torch 2.15.0+cu134, onnxruntime-gpu
+# 1.31.1 (CUDA 13.0 build) and a CTranslate2 wheel built below against 13.4;
+# libcublas-13-4 is installed to match. The base sets NVIDIA_REQUIRE_CUDA=13.4,
+# which nvidia-container-toolkit enforces at container start: the host needs an
+# R615-branch driver or newer. Upstream stays on 12.6 for driver reach; this
+# fork targets a current workstation instead.
+FROM nvidia/cuda:13.4.3-cudnn-runtime-ubuntu24.04@sha256:3a6966a47d7dfe61350b721d5adbeca92a14eb77dffbb3769a06605c3768340e AS base-linux-amd64
+
+# ============================================
+# CTranslate2 (transcription) for Blackwell
+# ============================================
+# PyPI's CTranslate2 wheels are built against CUDA 12 with SASS only up to
+# sm_86, so on an RTX 50-series GPU faster-whisper falls back to PTX JIT or
+# CPU. amd64 builds it from source against the 13.4 toolkit instead. Two
+# details matter:
+# - CUDA_ARCH_LIST keeps to single-digit majors: CTranslate2 still uses CMake's
+#   legacy FindCUDA arch parser, which mangles two-digit versions like "12.0".
+#   Blackwell goes in as explicit -gencode flags (SASS + PTX for sm_120).
+# - The CPU backend is ruy rather than MKL, which only matters when no GPU is
+#   present.
+# The wheel lands in /wheels and the transcription bundle installs it over the
+# PyPI build (docker/feature-manifest.json). arm64 ships an empty /wheels and
+# keeps the PyPI wheel (CPU only).
+FROM nvidia/cuda:13.4.3-cudnn-devel-ubuntu24.04@sha256:b3f64e4fec7d0825e05bf685e628e7e112afd7d63bc5906e2f71fd1f56cce336 AS ctranslate2-builder-amd64
+ARG CT2_VERSION=4.8.4
+ARG CT2_JOBS=12
+RUN for i in 1 2 3; do apt-get -o Acquire::Retries=3 update && break || sleep $((i * 15)); done && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      git cmake ninja-build g++ python3 python3-venv python3-dev ca-certificates patchelf && \
+    rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch "v${CT2_VERSION}" --recurse-submodules --shallow-submodules \
+      https://github.com/OpenNMT/CTranslate2 /src/ct2 && \
+    cmake -S /src/ct2 -B /src/ct2/build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/opt/ct2 \
+      -DWITH_CUDA=ON -DWITH_CUDNN=ON -DCUDA_DYNAMIC_LOADING=ON \
+      -DWITH_MKL=OFF -DWITH_DNNL=OFF -DWITH_RUY=ON -DOPENMP_RUNTIME=COMP \
+      -DBUILD_CLI=OFF \
+      -DCUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0" \
+      -DCUDA_NVCC_FLAGS="-gencode=arch=compute_120,code=sm_120;-gencode=arch=compute_120,code=compute_120" && \
+    cmake --build /src/ct2/build -j"${CT2_JOBS}" && \
+    cmake --install /src/ct2/build
+RUN python3 -m venv /opt/bvenv && \
+    /opt/bvenv/bin/pip install --no-cache-dir -r /src/ct2/python/install_requirements.txt wheel auditwheel && \
+    cd /src/ct2/python && \
+    CTRANSLATE2_ROOT=/opt/ct2 /opt/bvenv/bin/python setup.py -q bdist_wheel && \
+    LD_LIBRARY_PATH=/opt/ct2/lib /opt/bvenv/bin/auditwheel repair dist/*.whl -w /wheels \
+      --exclude 'libcudnn*' --exclude 'libcuda.so*' --exclude 'libcublas*' --exclude 'libcudart*' && \
+    ls -la /wheels
+
+FROM node:22-bookworm@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c32f3c7b4c4a31957e37 AS ctranslate2-builder-arm64
+RUN mkdir -p /wheels
+
+ARG TARGETARCH
+FROM ctranslate2-builder-${TARGETARCH} AS ctranslate2-wheels
 
 # Node.js donor: provides Node binaries for the CUDA amd64 image without
 # relying on NodeSource apt repos or Ubuntu mirrors (which are flaky on CI).
@@ -413,8 +463,8 @@ RUN for i in 1 2 3; do apt-get -o Acquire::Retries=3 update && break || sleep $(
        elif apt-cache show libx265-209 >/dev/null 2>&1; then \
          apt-get install -y --no-install-recommends libx265-209; \
        fi \
-    && if apt-cache show libcublas-12-6 >/dev/null 2>&1; then \
-         apt-get install -y --no-install-recommends libcublas-12-6; \
+    && if apt-cache show libcublas-13-4 >/dev/null 2>&1; then \
+         apt-get install -y --no-install-recommends libcublas-13-4; \
        fi \
     && case "$TARGETARCH" in \
          amd64) PANDOC_ARCH=amd64; PANDOC_SHA256=d502599878eb29af3ae5f0cb5d559134df96534125d452c7a0674a5bad2c5ecf ;; \
@@ -509,6 +559,22 @@ RUN POLICY_FILE=$(find /etc/ImageMagick* -name policy.xml 2>/dev/null | head -1)
       sed -i 's/<policy domain="coder" rights="none" pattern="XPS"/<policy domain="coder" rights="read" pattern="XPS"/' "$POLICY_FILE"; \
     fi
 
+# Fork hardening (review finding S6): deny the pseudo-coders and delegates an
+# upload has no business reaching -- MVG/MSL scripts, TXT pixel dumps, label
+# text, URL/HTTP fetches, ImageMagick's own SVG readers (SVG goes through
+# SnapOtter's sanitiser and resvg instead) -- and @file indirection. Delegate
+# names match in upper case. Ghostscript stays for EPS/PS/PDF read.
+RUN POLICY_FILE=$(find /etc/ImageMagick* -name policy.xml 2>/dev/null | head -1) && \
+    test -n "$POLICY_FILE" && \
+    sed -i 's#</policymap>#  <!-- snapotter fork hardening -->\n  <policy domain="coder" rights="none" pattern="{MVG,MSL,TEXT,TXT,LABEL,CAPTION,URL,HTTP,HTTPS,FTP,EPHEMERAL,SHOW,WIN,PLT,X,VID,SVG,MSVG,RSVG}" />\n  <policy domain="delegate" rights="none" pattern="{SVG,MSVG,RSVG,MVG,TXT,URL,HTTP,HTTPS,FTP,SHOW,WIN}" />\n  <policy domain="path" rights="none" pattern="@*" />\n</policymap>#' "$POLICY_FILE" && \
+    convert -list policy | grep -q "MVG,MSL,TEXT,TXT" && \
+    printf '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>' > /tmp/policy-probe.tga && \
+    if convert /tmp/policy-probe.tga png:/tmp/policy-probe.png 2>/dev/null; then \
+      echo "ImageMagick policy hardening did not apply" >&2; exit 1; \
+    fi && \
+    convert -size 4x4 xc:red tga:/tmp/policy-ok.tga && convert tga:/tmp/policy-ok.tga png:/tmp/policy-ok.png && \
+    rm -f /tmp/policy-probe.* /tmp/policy-ok.*
+
 # Caire binary (content-aware seam carving)
 COPY --from=caire-builder /tmp/caire /usr/local/bin/caire
 
@@ -528,6 +594,11 @@ COPY --from=libheif-builder /opt/libheif/lib/ /usr/local/lib/
 # distro libraw is installed, so this is the only RAW decoder in the image.
 COPY --from=libraw-builder /opt/libraw/bin/dcraw_emu /usr/local/bin/
 COPY --from=libraw-builder /opt/libraw/lib/ /usr/local/lib/
+
+# Source-built CTranslate2 wheel (amd64 only; empty on arm64). The
+# transcription bundle installs it over the PyPI build; see the
+# ctranslate2-builder stage above.
+COPY --from=ctranslate2-wheels /wheels/ /opt/snapotter-wheels/
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
 # Assert the RAW decoder resolves to the source build and its runtime deps are

@@ -568,8 +568,8 @@ real_run = mod.subprocess.run
 def fake_run(cmd, *a, **kw):
     if "-c" in cmd and "import onnxruntime" in cmd[-1]:
         return FakeProc(1, "", "ImportError: libcudart.so.12: cannot open shared object file")
-    if "pip" in cmd and "onnxruntime==1.20.1" in cmd:
-        return FakeProc(1, "", "ERROR: Could not find a version that satisfies the requirement onnxruntime==1.20.1")
+    if "pip" in cmd and "onnxruntime==1.31.1" in cmd:
+        return FakeProc(1, "", "ERROR: Could not find a version that satisfies the requirement onnxruntime==1.31.1")
     return real_run(cmd, *a, **kw)
 
 mod.subprocess.run = fake_run
@@ -581,7 +581,7 @@ except SystemExit:
 finally:
     mod.subprocess.run = real_run
 
-assert "Fallback onnxruntime==1.20.1 installation failed" in errors[-1], errors[-1]
+assert "Fallback onnxruntime==1.31.1 installation failed" in errors[-1], errors[-1]
 sp = ${JSON.stringify(sitePackagesDir)}
 assert not os.path.exists(os.path.join(sp, "onnxruntime", "capi", "libonnxruntime_providers_cuda.so"))
 assert open(os.path.join(sp, "onnxruntime", "__init__.py")).read() == "cpu"
@@ -1652,11 +1652,11 @@ def onnx_pip_fails(cmd, *a, **kw):
     joined = " ".join(cmd)
     if "sysconfig" in joined or "version_info" in joined:
         return real_run(cmd, *a, **kw)
-    if "-m pip install" in joined and "onnxruntime==1.20.1" in joined:
+    if "-m pip install" in joined and "onnxruntime==1.31.1" in joined:
         marker_seen_onnx.append(os.path.exists(marker) and json.loads(open(marker).read())["bundleId"])
         with open(os.path.join(sp_dir, "onnxruntime", "__init__.py"), "w") as f:
             f.write("# half-broken-cpu")
-        return ProcResult(1, "", "ERROR: Could not connect to pypi.org for onnxruntime==1.20.1\\nNo matching distribution")
+        return ProcResult(1, "", "ERROR: Could not connect to pypi.org for onnxruntime==1.31.1\\nNo matching distribution")
     if "-c" in cmd and "import onnxruntime" in cmd[-1]:
         return ProcResult(1, "", "ImportError: libcudart.so.12: cannot open shared object file")
     return real_run(cmd, *a, **kw)
@@ -1669,7 +1669,7 @@ except SystemExit:
     pass
 assert marker_seen_onnx == ["face-detection"], f"marker_seen_onnx={marker_seen_onnx}"
 assert "libcudart.so.12" in errors[-1], errors[-1]
-assert "Could not connect to pypi.org for onnxruntime==1.20.1" in errors[-1], errors[-1]
+assert "Could not connect to pypi.org for onnxruntime==1.31.1" in errors[-1], errors[-1]
 assert_clean_baseline()
 
 # 2. ONNX fallback pip succeeds (writes CPU files + deletes onnxruntime_gpu dist-info),
@@ -1681,7 +1681,7 @@ def both_remediations_then_smoke_fails(cmd, *a, **kw):
     joined = " ".join(cmd)
     if "sysconfig" in joined or "version_info" in joined:
         return real_run(cmd, *a, **kw)
-    if "-m pip install" in joined and "onnxruntime==1.20.1" in joined:
+    if "-m pip install" in joined and "onnxruntime==1.31.1" in joined:
         markers_seen_both.append(("onnx", os.path.exists(marker)))
         with open(os.path.join(sp_dir, "onnxruntime", "__init__.py"), "w") as f:
             f.write("# cpu-1.20.1")
@@ -1737,7 +1737,7 @@ for exc_to_raise, expected_substr in [
         joined = " ".join(cmd)
         if "sysconfig" in joined or "version_info" in joined:
             return real_run(cmd, *a, **kw)
-        if "-m pip install" in joined and "onnxruntime==1.20.1" in joined:
+        if "-m pip install" in joined and "onnxruntime==1.31.1" in joined:
             assert os.path.exists(marker)
             raise _exc
         if "-c" in cmd and "import onnxruntime" in cmd[-1]:
@@ -1860,7 +1860,7 @@ def onnx_pip_fails_then_smoke_times_out(cmd, *a, **kw):
     joined = " ".join(cmd)
     if "sysconfig" in joined or "version_info" in joined:
         return real_run(cmd, *a, **kw)
-    if "-m pip install" in joined and "onnxruntime==1.20.1" in joined:
+    if "-m pip install" in joined and "onnxruntime==1.31.1" in joined:
         return ProcResult(1, "", "ERROR: Offline network unreachable")
     if "-c" in cmd and "import onnxruntime" in cmd[-1]:
         recheck_timeout_calls[0] += 1
@@ -1905,7 +1905,7 @@ def onnx_fallback_succeeds(cmd, *a, **kw):
     joined = " ".join(cmd)
     if "sysconfig" in joined or "version_info" in joined:
         return real_run(cmd, *a, **kw)
-    if "-m pip install" in joined and "onnxruntime==1.20.1" in joined:
+    if "-m pip install" in joined and "onnxruntime==1.31.1" in joined:
         with open(os.path.join(sp_dir, "onnxruntime", "__init__.py"), "w") as f:
             f.write("# cpu-1.20.1")
         os.makedirs(os.path.join(sp_dir, "onnxruntime-1.20.1.dist-info"), exist_ok=True)

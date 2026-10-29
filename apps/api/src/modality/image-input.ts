@@ -105,6 +105,7 @@ export class ImageInputHandler implements InputHandler {
           maxDimension: opts.maxDimension,
           maxPixels: opts.maxPixels,
           signal: opts.signal,
+          contentUnverified: validation.nameOnly === true,
         });
         opts.signal?.throwIfAborted();
       } catch (rawDecodeErr) {

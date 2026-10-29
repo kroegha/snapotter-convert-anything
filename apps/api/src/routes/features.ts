@@ -207,7 +207,10 @@ function startOcrInstall(bundleId: string, jobId: string, installLockFd: number)
     try {
       const target = resolveOcrInstallTarget();
       const manifest = readManifest();
-      const bundleRepo = manifest?.bundleRepo;
+      // Fork: AI bundles live in our own repo (rebuilt for CUDA 13.4), but the
+      // OCR runtime is upstream's Ed25519-signed release, so it may come from
+      // a separate repo. Falls back to bundleRepo when ocrBundleRepo is unset.
+      const bundleRepo = manifest?.ocrBundleRepo ?? manifest?.bundleRepo;
       if (!bundleRepo) throw new Error("OCR runtime bundle repository is not configured");
       const trustKeys = loadOcrRuntimeTrustKeys(
         process.env.SNAPOTTER_OCR_RUNTIME_TRUST_STORE || undefined,
@@ -731,6 +734,8 @@ export interface ManifestBundle {
 
 export interface Manifest {
   bundleRepo?: string;
+  /** Repo for the signed OCR runtime release; defaults to bundleRepo. */
+  ocrBundleRepo?: string;
   bundles: Record<string, ManifestBundle>;
 }
 

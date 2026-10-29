@@ -239,7 +239,7 @@ def _try_torch_cuda():
         if not supported:
             sm = f"sm_{capability[0]}{capability[1]}"
             hint = (
-                " RTX 50-series and other Blackwell cards need a cu128 torch build."
+                " RTX 50-series and other Blackwell cards need a torch build with sm_120 kernels (cu128 or newer; this fork's bundles use cu134)."
                 if capability >= (10, 0)
                 else ""
             )
