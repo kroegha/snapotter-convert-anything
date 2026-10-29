@@ -7,8 +7,8 @@
   2. Runs the app's own one-frame trial encode for h264/hevc/av1_nvenc and an
      NVDEC decode in the new image with the GPU and the `video` capability.
   Output: <repo>\..\snapotter-build\phase3\ffmpeg\ (inventories, diff.txt).
-  Exits non-zero when a decoder or demuxer was lost (other than the two known
-  unpackaged ones, AVS3 and EVC) or a probe fails.
+  Exits non-zero when a decoder or demuxer was lost (other than the accepted
+  ones listed at $known) or a probe fails.
 #>
 param(
   # PowerShell names are case-insensitive: keep these distinct from the
@@ -29,14 +29,18 @@ foreach ($pair in @(@("old", $Old), @("new", $New))) {
 $oldInv = Get-Content "$Out\old.txt"; $newInv = Get-Content "$Out\new.txt"
 $lost = $oldInv | Where-Object { $_ -notin $newInv }
 $gained = $newInv | Where-Object { $_ -notin $oldInv }
-$known = @("decoders libuavs3d", "decoders libxevd", "decoders evc")
+# Accepted losses: AVS3/EVC (no Ubuntu package), Intel Quick Sync decoders
+# (*_qsv, Intel GPUs only; the build gains NVIDIA's *_cuvid instead) and
+# librsvg (FFmpeg's own SVG decoder; SnapOtter decodes SVG with Sharp, so
+# leaving it out removes an SVG parser from the attack surface).
+$known = @("decoders libuavs3d", "decoders libxevd", "decoders evc", "decoders librsvg")
 # Input protocols are reported but not enforced: the app passes
 # -protocol_whitelist file,pipe on every input (security fix S7), so network
 # protocols the static build had (rtmp, srt, ssh, zmq, ...) are never reachable.
-$lostInput = $lost | Where-Object { $_ -match '^(decoders|demuxers) ' -and $_ -notin $known }
+$lostInput = $lost | Where-Object { $_ -match '^(decoders|demuxers) ' -and $_ -notin $known -and $_ -notmatch '_qsv$' }
 @(
   "== lost (all kinds): $($lost.Count)"; $lost
-  ""; "== lost decoders/demuxers, excluding known AVS3/EVC: $($lostInput.Count)"; $lostInput
+  ""; "== lost decoders/demuxers, excluding the accepted ones (AVS3, EVC, *_qsv, librsvg): $($lostInput.Count)"; $lostInput
   ""; "== gained: $($gained.Count)"; ($gained -join " ")
 ) | Set-Content -Encoding ascii "$Out\diff.txt"
 Get-Content "$Out\diff.txt" | Select-Object -First 60
