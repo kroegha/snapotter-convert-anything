@@ -40,7 +40,7 @@ import time
 import urllib.parse
 import uuid
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 DEFAULT_BASE = "http://127.0.0.1:1349"
 CATALOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools.json")
 CHUNK = 1 << 20
