@@ -123,6 +123,18 @@ the FFmpeg tarball into `snapotter-build\sources` with retries (ffmpeg.org is
 intermittently unreachable from this network) and checks its SHA-256. Outputs
 land in `snapotter-build\phase3\`.
 
+## Accurate OCR
+
+`Build-Image.ps1` builds an "official" container (`SNAPOTTER_OFFICIAL_CONTAINER=1`)
+with upstream's public OCR release key pinned (`snapotter-ocr-2026-07`). That
+lets the OCR feature install upstream's signed CPU runtime (245 MB download)
+from `deepsafe/feature-bundles`, which adds the Balanced and Best tiers
+(PP-OCR on ONNX Runtime). It installs once into the data volume and survives
+image upgrades; install it from SnapOtter's settings or with
+`POST /api/v1/admin/features/ocr/install`. If upstream rotates the key, the
+install fails verification: refresh the two values at the top of
+`Build-Image.ps1` from the new official image and rebuild.
+
 ## Upstream drift
 
 `main` on the fork carries the fork's changes: `docker/Dockerfile`,

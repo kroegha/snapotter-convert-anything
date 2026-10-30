@@ -67,11 +67,15 @@ as above.
 - **"Compress strongly":** `quality=strong`. If `sizeRatio` comes back above
   0.75 the clip was already lean: tell the user and offer `resolution=720p`
   (or `480p`), the next real saving. Don't lower the resolution unasked.
-- **OCR (`ocr` for images, `ocr-pdf` for PDFs):** always `--set quality=fast`
-  (see Limits; leaving it out makes the server try the unavailable tiers
-  first). Set `language` when known (auto, en, de, fr, es, zh, ja, ko; Korean
-  fails here). `pages` takes `1-3` or `1,3,5`; at most 50 pages per run, so
-  split longer PDFs.
+- **OCR (`ocr` for images, `ocr-pdf` for PDFs):** always set `quality`;
+  left out, the server picks `best`, which is slow. `fast` (Tesseract, about
+  7 s a page) for clean printed documents. `balanced` (PP-OCR, about 8 s a
+  page) for photos, screenshots, noisy scans and Chinese, Japanese or Korean;
+  it can repeat a few words where text lines meet, so tidy that when showing
+  the text. `best` (about 50 s a page) only when the others miss text, and
+  detached from a cloud session. Set `language` when known (auto, en, de, fr,
+  es, zh, ja, ko; Korean needs balanced or best). `pages` takes `1-3` or
+  `1,3,5`; at most 50 pages per run, so split longer PDFs.
 - **Background removal:** use the default model. A photo with no clear subject
   (landscape, scene) comes back almost fully transparent while still `ok`; the
   CLI then sets `warning` and `transparentPct` (95 or more). Tell the user that
@@ -82,8 +86,9 @@ as above.
 
 The Raider shell call times out after about 60 s. Judge by file size
 (`(Get-Item <file>).Length`): detach videos over 20 MB, audio over 20 MB,
-PDFs over 10 MB, and image batches of more than 4 files (each image takes
-4-11 s; HEIC and WebP are the slow ones). Smaller jobs run inline.
+PDFs over 10 MB or `best` OCR on more than one page, and image batches of
+more than 4 files (each image takes 4-11 s; HEIC and WebP are the slow ones).
+Smaller jobs run inline.
 
     snapotter run compress-video C:\Users\cfish\Videos\trip.mp4 --set quality=strong --detach --json --quiet
     snapotter wait <jobId from that line> --timeout 45 --out C:\Users\cfish\Videos --json --quiet
@@ -108,8 +113,8 @@ and needs his go-ahead.
 
 ## Limits to tell the user about when relevant
 
-- **OCR:** only the fast (Tesseract) tier works on this build; the accurate
-  tiers report `unsupported-host`. Expect garbled text on photos of screens.
+- **OCR** runs on the CPU (the 2.2.0 OCR runtime is CPU-only), so `best` is
+  slow on long PDFs.
 - **Transcription** may misspell names and brands ("snap Otter"); fix obvious
   ones when showing the text and say you did.
 - **NVENC:** the GPU allows 8 encode sessions and the stack runs one media

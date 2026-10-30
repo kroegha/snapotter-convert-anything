@@ -53,6 +53,5 @@ python3 -m unittest discover -s tools/snapotter-cli/tests
 
 ## Known limits
 
-- Accurate OCR tiers report `unsupported-host` on the fork's image; only fast
-  (Tesseract) OCR works. See the PRD's open items.
+- OCR runs on the CPU: `fast` and `balanced` take about 7-8 s a page, `best` about 50 s.
 - One media job runs at a time (`CONCURRENT_JOBS=3`, 8 NVENC sessions).
