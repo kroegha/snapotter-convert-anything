@@ -110,10 +110,14 @@ the same steps. All commands run in PowerShell on the Raider from
 | 4. Smoke + security probes | `.\scripts\blackwell\Verify-Phase3.ps1 -Mode smoke -Image snapotter-local:cu134-next` | 1 min |
 | 5. Video matrix (when FFmpeg or encoders.ts changed) | `.\scripts\blackwell\Verify-Video.ps1 -Image snapotter-local:cu134-next` | 1-2 h |
 | 6. Promote | `.\scripts\blackwell\Promote-Image.ps1` | 2 min |
+| 7. Refresh the CLI catalogue and install | `python tools\snapotter-cli\build_catalog.py; .\tools\snapotter-cli\Install-SnapotterCli.ps1` | 1 min |
+| 8. CLI live checks | `.\tools\snapotter-cli\Verify-Cli.ps1` | 2 min |
 | Rollback, if needed | `.\scripts\blackwell\Promote-Image.ps1 -Rollback` | 2 min |
 
 Steps 3-5 run the stack on the candidate; step 6 (or a rollback) puts it back
-on the release. Recalibrate NVENC (`.\scripts\blackwell\Calibrate-NVENC.ps1`,
+on the release. Step 7 keeps the existing CLI key; if `build_catalog.py`
+changed `tools\snapotter-cli\tools.json`, commit it. `snapotter status` warns
+when the running server has tools the catalogue lacks. Recalibrate NVENC (`.\scripts\blackwell\Calibrate-NVENC.ps1`,
 1-3 h) only after an FFmpeg, driver or GPU change. `Build-Image.ps1` downloads
 the FFmpeg tarball into `snapotter-build\sources` with retries (ffmpeg.org is
 intermittently unreachable from this network) and checks its SHA-256. Outputs
