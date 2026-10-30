@@ -43,12 +43,24 @@ if (-not ((Test-Path $tarball) -and ((Get-FileHash $tarball -Algorithm SHA256).H
   throw "could not fetch ffmpeg-$ffVer.tar.xz matching the pinned SHA-256"
 }
 
+# Accurate OCR (Balanced/Best) downloads upstream's Ed25519-signed OCR runtime
+# from deepsafe/feature-bundles and only runs in an "official" container that
+# pins upstream's public release key. Key id and public key (public data, no
+# secret) taken from the official image ghcr.io/snapotter-hq/snapotter:2.2.0
+# (/app/docker/ocr-runtime-trust.json) and checked against
+# v2.2.0/v3/ocr-runtime-trusted-keys.json on Hugging Face on 30 Oct 2026; both
+# matched. If upstream rotates the key, refresh these two values.
+$OcrTrustId = "snapotter-ocr-2026-07"
+$OcrTrustPem = "-----BEGIN PUBLIC KEY-----`nMCowBQYDK2VwAyEA8wzT/8aMnaixlLhGcvZwywb3UeOcJUeBnvVPDrx19L8=`n-----END PUBLIC KEY-----`n"
+$OcrTrustPemB64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($OcrTrustPem))
+$OcrArgs = "--build-arg SNAPOTTER_OFFICIAL_CONTAINER=1 --build-arg OCR_RUNTIME_TRUST_ID=$OcrTrustId --build-arg OCR_RUNTIME_TRUST_PEM_B64=$OcrTrustPemB64"
+
 Write-Host "Building $Image from $Repo (log: $Log)"
 $env:DOCKER_BUILDKIT = "1"
 # Redirect in cmd, not through the PowerShell pipeline: Windows PowerShell
 # holds a native command's piped output until it exits, so the log would stay
 # empty for the whole build. Follow it with: Get-Content <log> -Wait -Tail 20
-cmd /c "docker build --platform linux/amd64 --file `"$Dockerfile`" --build-arg SNAPOTTER_ANALYTICS=off --build-arg CT2_JOBS=$Ct2Jobs --build-context ffmpeg-src=`"$Sources`" --progress plain --tag $Image `"$Repo`" > `"$Log`" 2>&1"
+cmd /c "docker build --platform linux/amd64 --file `"$Dockerfile`" --build-arg SNAPOTTER_ANALYTICS=off --build-arg CT2_JOBS=$Ct2Jobs $OcrArgs --build-context ffmpeg-src=`"$Sources`" --progress plain --tag $Image `"$Repo`" > `"$Log`" 2>&1"
 if ($LASTEXITCODE -ne 0) { Get-Content $Log -Tail 30; throw "docker build failed ($LASTEXITCODE); see $Log" }
 
 Write-Host "== Verifying the image"
